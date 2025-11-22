@@ -253,6 +253,38 @@ class OptionBadge(QWidget):
         )
 
 
+class StrikeRuler(QWidget):
+    def __init__(self) -> None:
+        super().__init__()
+        self._strikes: list[float] = []
+
+    def set_strikes(self, strikes: list[float]) -> None:
+        self._strikes = strikes
+        self.update()
+
+    def paintEvent(self, _event: QPaintEvent) -> None:
+        p = QPainter(self)
+        w = self.width()
+        h = self.height()
+        p.setPen(QColor("#DDD"))
+        p.drawLine(0, h // 2, w, h // 2)
+        if not self._strikes:
+            return
+        mn = min(self._strikes)
+        mx = max(self._strikes)
+        if mx == mn:
+            mx = mn + 1
+        p.setFont(QFont("Arial", 8))
+        p.setPen(QColor("#333"))
+        for _i, s in enumerate(self._strikes):
+            x = int((s - mn) / (mx - mn) * w)
+            tick_h = 10
+            p.drawLine(x, int(h // 2 - tick_h), x, int(h // 2 + tick_h))
+            label = f"{s:.2f}".rstrip("0").rstrip(".")
+            rect = QRect(int(x) - 22, int(h // 2 - 24), 44, 16)
+            p.drawText(rect, Qt.AlignmentFlag.AlignCenter, label)
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -262,6 +294,7 @@ class MainWindow(QMainWindow):
         self.data_service = MockOptionsDataService()
         self.expiries: list[date] = []
         self.selected_expiry: date | None = None
+        self.strikes: list[float] = []
 
         # Main Widget
         central_widget = QWidget()
@@ -437,6 +470,7 @@ class MainWindow(QMainWindow):
                 )
             else:
                 btn.setStyleSheet("color: #333; font-size: 11px; font-weight: bold;")
+        self.load_strikes_for_expiry()
 
     @staticmethod
     def _clear_layout(layout: QHBoxLayout | QVBoxLayout) -> None:
@@ -450,92 +484,25 @@ class MainWindow(QMainWindow):
                 MainWindow._clear_layout(child)
 
     def setup_strikes(self) -> None:
-        # Container for the strikes ruler visualization
         container = QWidget()
         container.setFixedHeight(60)
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
-
-        # Top label
         lbl = QLabel("STRIKES:")
         lbl.setStyleSheet("font-weight: bold; font-size: 12px;")
         layout.addWidget(lbl)
-
-        # Ruler area (using a layout for simulated tick marks and badges)
-        ruler_layout = QHBoxLayout()
-        ruler_layout.setContentsMargins(20, 0, 20, 0)
-        ruler_layout.setSpacing(0)
-
-        # Just simulating the ruler look with a custom widget approach would be hard
-        # without drawing. Let's use a QFrame with a custom paint for ticks.
-
-        class StrikeRuler(QWidget):
-            def paintEvent(self, _event: QPaintEvent) -> None:
-                p = QPainter(self)
-                w = self.width()
-                h = self.height()
-
-                # Draw center line
-                p.setPen(QColor("#DDD"))
-                p.drawLine(0, h // 2, w, h // 2)
-
-                # Draw ticks
-                p.setFont(QFont("Arial", 8))
-                p.setPen(QColor("#888"))
-
-                step = w / 30
-                for i in range(31):
-                    x = i * step
-                    is_major = i % 5 == 0
-                    tick_h = 10 if is_major else 5
-                    p.drawLine(
-                        int(x), int(h // 2 - tick_h), int(x), int(h // 2 + tick_h)
-                    )
-
-                    if is_major:
-                        # Number
-                        val = 6375 + (i * 25)  # Mock values
-                        rect = QRect(int(x) - 15, int(h // 2 + 12), 30, 15)
-                        p.drawText(rect, Qt.AlignmentFlag.AlignCenter, str(val))
-
-        ruler = StrikeRuler()
-        ruler.setFixedHeight(40)
-
-        # Overlay Badges (Using absolute positioning relative to the ruler container)
-        # We can't easily mix absolute widgets inside a layout, so we'll add them to the ruler widget
-        # but since we are just creating the UI, let's add them to a layout on top of the ruler?
-        # Easier: Add them to ruler widget as children
-
-        # Badge 1
-        b1 = OptionBadge("6580P", "#D32F2F")
-        b1.setParent(ruler)
-        b1.move(450, 0)  # Approx px position
-        lbl_date1 = QLabel("12/5", ruler)
-        lbl_date1.setStyleSheet(
-            "background-color: #5CACEE; color: white; font-size: 9px; padding: 1px; border-radius: 2px;"
-        )
-        lbl_date1.move(465, 26)
-
-        # Badge 2 (Current Price/SPX Marker)
-        spx_mark = QLabel("SPX", ruler)
-        spx_mark.setStyleSheet("font-size: 9px; font-weight: bold; color: #333;")
-        spx_mark.move(535, 5)
-        tri = QLabel("▼", ruler)
-        tri.setStyleSheet("color: #333; font-size: 10px;")
-        tri.move(540, 15)
-
-        # Badge 3
-        b2 = OptionBadge("6630P", "#AA00FF")
-        b2.setParent(ruler)
-        b2.move(600, 0)
-        lbl_date2 = QLabel("12/19", ruler)
-        lbl_date2.setStyleSheet(
-            "background-color: #AA00FF; color: white; font-size: 9px; padding: 1px; border-radius: 2px;"
-        )
-        lbl_date2.move(610, -12)  # Above
-
-        layout.addWidget(ruler)
+        self.strike_ruler = StrikeRuler()
+        self.strike_ruler.setFixedHeight(40)
+        layout.addWidget(self.strike_ruler)
         self.main_layout.addWidget(container)
+
+    def load_strikes_for_expiry(self) -> None:
+        if self.selected_expiry is None:
+            return
+        symbol = self.symbol_input.text().strip()
+        self.strikes = list(self.data_service.get_strikes(symbol, self.selected_expiry))
+        if hasattr(self, "strike_ruler"):
+            self.strike_ruler.set_strikes(self.strikes)
 
     def setup_metrics(self) -> None:
         metrics_frame = QFrame()
