@@ -1,0 +1,11 @@
+venv/
+app.json
+models.conf
+crash.log
+uncompressed.py
+build/
+dist/
+.aider*
+.env
+__pycache__/
+*.egg-info/
