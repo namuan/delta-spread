@@ -1,3 +1,4 @@
+from datetime import date
 import sys
 
 from PyQt6.QtCore import QPointF, QRect, Qt
@@ -25,6 +26,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from .options_data_mock import MockOptionsDataService
 
 
 class ChartWidget(QWidget):
@@ -256,6 +259,10 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Diagonal Put Spread Analyzer")
         self.resize(1200, 850)
 
+        self.data_service = MockOptionsDataService()
+        self.expiries: list[date] = []
+        self.selected_expiry: date | None = None
+
         # Main Widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -276,6 +283,8 @@ class MainWindow(QMainWindow):
         self.setup_chart()
         self.setup_footer_controls()
         self.setup_bottom_tabs()
+
+        self.on_symbol_changed()
 
     def setup_header(self) -> None:
         header_layout = QHBoxLayout()
@@ -319,11 +328,13 @@ class MainWindow(QMainWindow):
         info_layout = QHBoxLayout()
         info_layout.setContentsMargins(0, 10, 0, 10)
 
-        spx_input = QLineEdit("SPX")
-        spx_input.setFixedWidth(60)
-        spx_input.setStyleSheet(
+        self.symbol_input = QLineEdit("SPX")
+        self.symbol_input.setFixedWidth(60)
+        self.symbol_input.setStyleSheet(
             "border: 1px solid #CCC; border-radius: 3px; padding: 3px; font-weight: bold;"
         )
+        self.symbol_input.returnPressed.connect(self.on_symbol_changed)
+        self.symbol_input.editingFinished.connect(self.on_symbol_changed)
 
         price_label = QLabel("6,602.99")
         price_label.setStyleSheet("font-size: 16px; font-weight: bold;")
@@ -340,7 +351,7 @@ class MainWindow(QMainWindow):
             "border: 1px solid #AAA; border-radius: 7px; min-width: 14px; min-height: 14px; qproperty-alignment: AlignCenter; font-size: 10px; color: #555;"
         )
 
-        info_layout.addWidget(spx_input)
+        info_layout.addWidget(self.symbol_input)
         info_layout.addSpacing(10)
         info_layout.addWidget(price_label)
         info_layout.addSpacing(10)
@@ -352,105 +363,91 @@ class MainWindow(QMainWindow):
 
         self.main_layout.addLayout(info_layout)
 
-        # Expirations text
-        exp_label = QLabel("EXPIRATIONS: <b>14d, 28d</b>")
-        exp_label.setStyleSheet("font-size: 12px;")
-        self.main_layout.addWidget(exp_label)
+        self.exp_label = QLabel("EXPIRATIONS:")
+        self.exp_label.setStyleSheet("font-size: 12px;")
+        self.main_layout.addWidget(self.exp_label)
 
     def setup_timeline(self) -> None:
-        # Timeline container
-        timeline_frame = QFrame()
-        timeline_frame.setStyleSheet("background-color: #EAEAEA; border-radius: 3px;")
-        timeline_layout = QVBoxLayout(timeline_frame)
-        timeline_layout.setContentsMargins(0, 0, 0, 0)
-        timeline_layout.setSpacing(0)
+        self.timeline_frame = QFrame()
+        self.timeline_frame.setStyleSheet(
+            "background-color: #EAEAEA; border-radius: 3px;"
+        )
+        self.timeline_layout = QVBoxLayout(self.timeline_frame)
+        self.timeline_layout.setContentsMargins(0, 0, 0, 0)
+        self.timeline_layout.setSpacing(0)
 
-        # Month Row
-        month_layout = QHBoxLayout()
-        month_layout.setContentsMargins(10, 2, 10, 2)
+        self.month_layout = QHBoxLayout()
+        self.month_layout.setContentsMargins(10, 2, 10, 2)
+        self.timeline_layout.addLayout(self.month_layout)
 
-        lbl_nov = QLabel("Nov")
-        lbl_dec = QLabel("Dec")
-        lbl_jan = QLabel("Jan")
-
-        for lbl in [lbl_nov, lbl_dec, lbl_jan]:
-            lbl.setStyleSheet("color: #555; font-weight: bold; font-size: 12px;")
-            month_layout.addWidget(lbl)
-            month_layout.addStretch()  # Simple spacing
-
-        timeline_layout.addLayout(month_layout)
-
-        # Separator
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setStyleSheet("color: #BBB;")
-        timeline_layout.addWidget(line)
+        self.timeline_layout.addWidget(line)
 
-        # Days Row
-        days_layout = QHBoxLayout()
-        days_layout.setContentsMargins(5, 2, 5, 2)
-        days_layout.setSpacing(15)
+        self.days_layout = QHBoxLayout()
+        self.days_layout.setContentsMargins(5, 2, 5, 2)
+        self.days_layout.setSpacing(15)
+        self.timeline_layout.addLayout(self.days_layout)
 
-        # Sequence of days similar to screenshot
-        # Nov end -> Dec -> Jan
-        days = [
-            "24",
-            "25",
-            "26",
-            "28",
-            "1",
-            "2",
-            "3",
-            "4",
-            "5",
-            "8",
-            "9",
-            "10",
-            "11",
-            "12",
-            "15",
-            "16",
-            "17",
-            "18",
-            "19 AM",
-            "19",
-            "22",
-            "23",
-            "24",
-            "26",
-            "29",
-            "30",
-            "31",
-            "2",
-            "8",
-            "9",
-            "15",
-        ]
+        self.main_layout.addWidget(self.timeline_frame)
 
-        for day in days:
-            d_lbl = QLabel(day)
-            d_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    def on_symbol_changed(self) -> None:
+        self.load_expiries()
 
-            style = "color: #333; font-size: 11px; font-weight: bold;"
+    def load_expiries(self) -> None:
+        self.expiries = list(self.data_service.get_expiries())
+        self.update_exp_label()
+        self.render_timeline()
 
-            # Highlights
-            if day == "5":
-                d_lbl.setStyleSheet(
+    def update_exp_label(self) -> None:
+        today = date.today()
+        parts = [f"{(d - today).days}d" for d in self.expiries]
+        self.exp_label.setText(f"EXPIRATIONS: <b>{", ".join(parts)}</b>")
+
+    def render_timeline(self) -> None:
+        self._clear_layout(self.month_layout)
+        self._clear_layout(self.days_layout)
+        months = []
+        for d in self.expiries:
+            m = d.strftime("%b")
+            if m not in months:
+                months.append(m)
+        for m in months:
+            lbl = QLabel(m)
+            lbl.setStyleSheet("color: #555; font-weight: bold; font-size: 12px;")
+            self.month_layout.addWidget(lbl)
+            self.month_layout.addStretch()
+        self.expiry_buttons: dict[date, QPushButton] = {}
+        for d in self.expiries:
+            btn = QPushButton(d.strftime("%d"))
+            btn.setStyleSheet("color: #333; font-size: 11px; font-weight: bold;")
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(lambda _=False, dd=d: self.on_expiry_selected(dd))
+            self.days_layout.addWidget(btn)
+            self.expiry_buttons[d] = btn
+        self.days_layout.addStretch()
+
+    def on_expiry_selected(self, d: date) -> None:
+        self.selected_expiry = d
+        for ed, btn in self.expiry_buttons.items():
+            if ed == d:
+                btn.setStyleSheet(
                     "background-color: #5CACEE; color: white; border-radius: 2px; padding: 2px 5px;"
                 )
-            elif day == "19":
-                d_lbl.setStyleSheet(
-                    "background-color: #AA00FF; color: white; border-radius: 2px; padding: 2px 5px;"
-                )
             else:
-                d_lbl.setStyleSheet(style)
+                btn.setStyleSheet("color: #333; font-size: 11px; font-weight: bold;")
 
-            days_layout.addWidget(d_lbl)
-
-        days_layout.addStretch()
-        timeline_layout.addLayout(days_layout)
-
-        self.main_layout.addWidget(timeline_frame)
+    @staticmethod
+    def _clear_layout(layout: QHBoxLayout | QVBoxLayout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+            child = item.layout()
+            if child is not None:
+                MainWindow._clear_layout(child)
 
     def setup_strikes(self) -> None:
         # Container for the strikes ruler visualization
