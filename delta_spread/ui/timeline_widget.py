@@ -16,7 +16,6 @@ from PyQt6.QtWidgets import (
 from .styles import (
     DAY_BTN_SELECTED_STYLE,
     DAY_BTN_STYLE,
-    HLINE_STYLE,
     MONTH_BAR_STYLE,
     TIMELINE_FRAME_STYLE,
 )
@@ -62,17 +61,12 @@ class TimelineWidget(QWidget):
         self.scroll_layout.setSpacing(0)
 
         self.month_layout = QHBoxLayout()
-        self.month_layout.setContentsMargins(10, 2, 10, 2)
+        self.month_layout.setContentsMargins(5, 0, 5, 0)
         self.scroll_layout.addLayout(self.month_layout)
 
-        self.line = QFrame()
-        self.line.setFrameShape(QFrame.Shape.HLine)
-        self.line.setStyleSheet(HLINE_STYLE)
-        self.scroll_layout.addWidget(self.line)
-
         self.days_layout = QHBoxLayout()
-        self.days_layout.setContentsMargins(5, 2, 5, 2)
-        self.days_layout.setSpacing(15)
+        self.days_layout.setContentsMargins(5, 0, 5, 0)
+        self.days_layout.setSpacing(6)
         self.scroll_layout.addLayout(self.days_layout)
 
         self.scroll_area.setWidget(self.scroll_content)
@@ -100,7 +94,7 @@ class TimelineWidget(QWidget):
             spacing = max(self.days_layout.spacing(), 0)
             width = count * day_w + max(count - 1, 0) * spacing
             seg.setMinimumWidth(width)
-            seg.setFixedHeight(22)
+            seg.setFixedHeight(18)
             self.month_layout.addWidget(seg)
         self.expiry_buttons = {}
         for d in self.expiries:
