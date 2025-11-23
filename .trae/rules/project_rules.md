@@ -1,3 +1,3 @@
 - Use `make run` to run the application.
 - Always use make commands. Fall back to `uv`. Never use `python` or `python3` directly.
-- Do not write tests at the moment.
+- Always run `make check` before completing a feature. Also ask for `Interactive Feedback` using tools.

@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 from datetime import date
+import logging
 from typing import TYPE_CHECKING, cast
 
 from PyQt6.QtCore import QPoint, Qt
@@ -8,6 +7,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QLineEdit,
     QMainWindow,
     QPushButton,
@@ -16,7 +16,19 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ..services.options_data_mock import MockOptionsDataService
+from mocks.options_data_mock import MockOptionsDataService
+from mocks.pricing_mock import MockPricingService
+
+from ..domain.models import (
+    OptionContract,
+    OptionLeg,
+    OptionType,
+    Side,
+    Strategy,
+    Underlier,
+)
+from ..services.aggregation import AggregationService
+from ..services.presenter import ChartPresenter, MetricsPresenter
 from .chart_widget import ChartWidget
 from .menus.add_menu import build_add_menu
 from .strike_ruler import StrikeRuler
@@ -49,10 +61,6 @@ from .styles import (
 if TYPE_CHECKING:
     from collections.abc import Callable as TCallable
 
-    from PyQt6.QtWidgets import (
-        QLayout,
-    )
-
     from ..services.options_data import OptionsDataService
 
 
@@ -62,9 +70,18 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Delta Spread - Collapse the wave function of uncertainty")
         self.resize(1200, 850)
         self.data_service: OptionsDataService = MockOptionsDataService()
+        self._logger = logging.getLogger(__name__)
+        self.pricing = MockPricingService()
+        self.aggregator = AggregationService(self.pricing)
         self.expiries: list[date] = []
         self.selected_expiry: date | None = None
         self.strikes: list[float] = []
+        self.strategy: Strategy | None = None
+        self.metric_net_lbl: QLabel | None = None
+        self.metric_max_loss_lbl: QLabel | None = None
+        self.metric_max_profit_lbl: QLabel | None = None
+        self.metric_pop_lbl: QLabel | None = None
+        self.metric_breakevens_lbl: QLabel | None = None
         self.expiry_buttons: dict[date, QPushButton] = {}
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -245,7 +262,7 @@ class MainWindow(QMainWindow):
             value_color: str,
             icon_char: str | None = None,
             subtext: str | None = None,
-        ) -> QWidget:
+        ) -> tuple[QWidget, QLabel]:
             v_layout = QVBoxLayout()
             t_lbl = QLabel(title)
             t_lbl.setStyleSheet(METRIC_TITLE_STYLE)
@@ -268,13 +285,18 @@ class MainWindow(QMainWindow):
                 v_layout.addWidget(s_lbl)
             container = QWidget()
             container.setLayout(v_layout)
-            return container
+            return container, v_lbl
 
-        m1 = create_metric("NET DEBIT:", "$5,850", "#000", "🪙")
-        m2 = create_metric("MAX LOSS:", "$5,850", "#000", "↘")
-        m3 = create_metric("MAX PROFIT:", "$5,841.72", "#22C55E", "↗")
-        m4 = create_metric("CHANCE OF PROFIT:", "49%", "#000", "🎲")
-        m5 = create_metric("BREAKEVENS:", "Between 6,382.88 - 6,709.99", "#000", "→")
+        m1, m1_lbl = create_metric("NET DEBIT:", "$0", "#000", "🪙")
+        m2, m2_lbl = create_metric("MAX LOSS:", "$0", "#000", "↘")
+        m3, m3_lbl = create_metric("MAX PROFIT:", "$0", "#22C55E", "↗")
+        m4, m4_lbl = create_metric("CHANCE OF PROFIT:", "-", "#000", "🎲")
+        m5, m5_lbl = create_metric("BREAKEVENS:", "-", "#000", "→")
+        self.metric_net_lbl = m1_lbl
+        self.metric_max_loss_lbl = m2_lbl
+        self.metric_max_profit_lbl = m3_lbl
+        self.metric_pop_lbl = m4_lbl
+        self.metric_breakevens_lbl = m5_lbl
         layout.addWidget(m1)
         layout.addWidget(m2)
         layout.addWidget(m3)
@@ -301,7 +323,49 @@ class MainWindow(QMainWindow):
         self.add_menu.popup(p)
 
     def on_add_option(self, key: str) -> None:
-        pass
+        if self.selected_expiry is None:
+            return
+        if not self.strikes:
+            return
+        symbol = self.symbol_input.text().strip()
+        centre = self.strikes[len(self.strikes) // 2]
+        spot = centre
+        underlier = Underlier(
+            symbol=symbol or "SPX", spot=float(spot), multiplier=100, currency="USD"
+        )
+        if key == "buy_call":
+            side, otype = Side.BUY, OptionType.CALL
+        elif key == "sell_call":
+            side, otype = Side.SELL, OptionType.CALL
+        elif key == "buy_put":
+            side, otype = Side.BUY, OptionType.PUT
+        elif key == "sell_put":
+            side, otype = Side.SELL, OptionType.PUT
+        else:
+            return
+        strike = min(self.strikes, key=lambda s: abs(s - spot))
+        contract = OptionContract(
+            underlier=underlier,
+            expiry=self.selected_expiry,
+            strike=float(strike),
+            type=otype,
+        )
+        quote = self.data_service.get_quote(
+            symbol, self.selected_expiry, float(strike), otype
+        )
+        leg = OptionLeg(contract=contract, side=side, quantity=1, entry_price=quote.mid)
+        if self.strategy is None:
+            self.strategy = Strategy(name="Strategy", underlier=underlier, legs=[leg])
+        else:
+            self.strategy = Strategy(
+                name=self.strategy.name,
+                underlier=self.strategy.underlier,
+                legs=[*self.strategy.legs, leg],
+                constraints=self.strategy.constraints,
+            )
+        self._logger.info("Added leg: %s %s @ %.2f", side.name, otype.name, strike)
+        self.update_metrics()
+        self.update_chart()
 
     def setup_footer_controls(self) -> None:
         controls_layout = QVBoxLayout()
@@ -311,6 +375,65 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self._build_range_slider())
         controls_layout.addLayout(self._build_markers_layout())
         self.main_layout.addLayout(controls_layout)
+
+    def update_metrics(self) -> None:
+        if self.strategy is None:
+            return
+        ivs: dict[tuple[float, OptionType], float] = {}
+        for leg in self.strategy.legs:
+            q = self.data_service.get_quote(
+                self.strategy.underlier.symbol,
+                leg.contract.expiry,
+                leg.contract.strike,
+                leg.contract.type,
+            )
+            ivs[leg.contract.strike, leg.contract.type] = q.iv
+        m = self.aggregator.aggregate(
+            self.strategy, spot=self.strategy.underlier.spot, ivs=ivs
+        )
+        if self.metric_net_lbl:
+            pm = MetricsPresenter.prepare(m)
+            self.metric_net_lbl.setText(pm.net_text)
+        if self.metric_max_loss_lbl:
+            pm = MetricsPresenter.prepare(m)
+            self.metric_max_loss_lbl.setText(pm.max_loss_text)
+        if self.metric_max_profit_lbl:
+            pm = MetricsPresenter.prepare(m)
+            self.metric_max_profit_lbl.setText(pm.max_profit_text)
+        if self.metric_breakevens_lbl:
+            pm = MetricsPresenter.prepare(m)
+            self.metric_breakevens_lbl.setText(pm.breakevens_text)
+        if self.metric_pop_lbl:
+            pm = MetricsPresenter.prepare(m)
+            self.metric_pop_lbl.setText(pm.pop_text)
+
+    def update_chart(self) -> None:
+        if self.strategy is None:
+            return
+        ivs: dict[tuple[float, OptionType], float] = {}
+        strikes_sel: list[float] = []
+        for leg in self.strategy.legs:
+            strikes_sel.append(leg.contract.strike)
+            q = self.data_service.get_quote(
+                self.strategy.underlier.symbol,
+                leg.contract.expiry,
+                leg.contract.strike,
+                leg.contract.type,
+            )
+            ivs[leg.contract.strike, leg.contract.type] = q.iv
+        m = self.aggregator.aggregate(
+            self.strategy, spot=self.strategy.underlier.spot, ivs=ivs
+        )
+        self._logger.info(
+            "Updated chart: net=%.2f, be=%s", m.net_debit_credit, m.break_evens
+        )
+        self.strike_ruler.set_selected_strikes(strikes_sel)
+        cd = ChartPresenter.prepare(
+            m,
+            strike_lines=strikes_sel,
+            current_price=self.strategy.underlier.spot,
+        )
+        self.chart.set_chart_data(cd)
 
     @staticmethod
     def _build_date_row() -> QHBoxLayout:

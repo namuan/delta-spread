@@ -34,6 +34,8 @@ dev = [
     "radon",
     "skylos",
     "xenon",
+    "pytest",
+    "pytest-cov",
 ]
 
 [tool.setuptools.packages.find]
@@ -149,6 +151,9 @@ max-nested-blocks = 3  # Maximum nested block depth (PLR1702)
     "PLR2004", # Allow magic values in tests
     "ANN",     # Don't require annotations in tests
     "FBT",     # Allow boolean args in tests
+]
+"delta_spread/domain/models.py" = [
+    "TCH003",  # Allow runtime import of 'date' needed by Pydantic
 ]
 "delta_spread/ui/chart_widget.py" = [
     "N802",    # Qt event handler naming (paintEvent)
@@ -314,7 +319,8 @@ addopts = [
     "--strict-config",
     "-W error",  # STRICT: Treat warnings as errors (catch deprecations early)
     "--tb=short",
-    "--cov=.",
+    "--cov=delta_spread/domain",
+    "--cov=delta_spread/services",
     "--cov-report=term-missing:skip-covered",
     "--cov-report=html",
     "--cov-report=xml",
@@ -336,7 +342,7 @@ markers = [
 # COVERAGE CONFIGURATION
 # ============================================================
 [tool.coverage.run]
-source = ["."]
+source = ["delta_spread/domain", "delta_spread/services"]
 branch = true  # STRICT: Enable branch coverage
 omit = [
     "*/tests/*",

@@ -13,12 +13,33 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import QSizePolicy, QWidget
 
+from ..services.presenter import ChartData
+
 
 class ChartWidget(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.setMinimumHeight(350)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._prices: list[float] = []
+        self._pnls: list[float] = []
+        self._x_min: float = 0.0
+        self._x_max: float = 1.0
+        self._y_min: float = -1.0
+        self._y_max: float = 1.0
+        self._strike_lines: list[float] = []
+        self._current_price: float = 0.0
+
+    def set_chart_data(self, data: ChartData) -> None:
+        self._prices = data.prices
+        self._pnls = data.pnls
+        self._x_min = data.x_min
+        self._x_max = data.x_max
+        self._y_min = data.y_min
+        self._y_max = data.y_max
+        self._strike_lines = data.strike_lines
+        self._current_price = data.current_price
+        self.update()
 
     @override
     def paintEvent(self, a0: QPaintEvent | None) -> None:
@@ -29,7 +50,7 @@ class ChartWidget(QWidget):
         self._draw_bell_curve(painter)
         self._draw_profit_loss_curves(painter)
         self._draw_current_price(painter)
-        self._draw_strike_line(painter)
+        self._draw_strike_lines(painter)
         self._draw_legend(painter)
 
     def _draw_background_and_grid(self, painter: QPainter) -> None:
@@ -124,28 +145,29 @@ class ChartWidget(QWidget):
         top_m = 20
         graph_w = w - left_m - right_m
         graph_h = h - bottom_m - top_m
-        center_x = left_m + (graph_w * 0.55)
-        zero_y = top_m + (6 * graph_h / 10)
-        painter.setPen(QPen(QColor("#66BB6A"), 2, Qt.PenStyle.DashLine))
-        path_green_dash = QPainterPath()
-        path_green_dash.moveTo(left_m, zero_y + 20)
-        path_green_dash.quadTo(center_x, top_m + 50, w - right_m, zero_y + 50)
-        painter.drawPath(path_green_dash)
-        path_solid = QPainterPath()
-        path_solid.moveTo(left_m, zero_y + 10)
-        peak_x = center_x - 40
-        peak_y = zero_y - 30
-        path_solid.quadTo(peak_x, peak_y - 10, center_x, peak_y + 5)
-        path_solid.lineTo(w - right_m, zero_y + 150)
+        if not self._prices or not self._pnls:
+            return
+
+        def map_x(px: float) -> float:
+            if self._x_max == self._x_min:
+                return float(left_m)
+            return float(left_m) + (px - self._x_min) / (
+                self._x_max - self._x_min
+            ) * float(graph_w)
+
+        def map_y(py: float) -> float:
+            if self._y_max == self._y_min:
+                return float(top_m)
+            return float(top_m) + (self._y_max - py) / (
+                self._y_max - self._y_min
+            ) * float(graph_h)
+
+        path = QPainterPath()
+        path.moveTo(map_x(self._prices[0]), map_y(self._pnls[0]))
+        for i in range(1, len(self._prices)):
+            path.lineTo(map_x(self._prices[i]), map_y(self._pnls[i]))
         painter.setPen(QPen(QColor("#2E7D32"), 2))
-        painter.drawPath(path_solid)
-        painter.setPen(QPen(QColor("#EF5350"), 2, Qt.PenStyle.DotLine))
-        path_red_dash = QPainterPath()
-        path_red_dash.moveTo(left_m, zero_y + 40)
-        path_red_dash.quadTo(
-            center_x - 20, zero_y - 100, w - right_m, h - bottom_m + 50
-        )
-        painter.drawPath(path_red_dash)
+        painter.drawPath(path)
 
     def _draw_current_price(self, painter: QPainter) -> None:
         w = self.width()
@@ -155,15 +177,18 @@ class ChartWidget(QWidget):
         right_m = 20
         top_m = 20
         graph_w = w - left_m - right_m
-        center_x = left_m + (graph_w * 0.55)
-        price_x = center_x + 10
+        if self._x_max == self._x_min:
+            return
+        px = float(left_m) + (self._current_price - self._x_min) / (
+            self._x_max - self._x_min
+        ) * float(graph_w)
         painter.setPen(QPen(QColor("#2196F3"), 1))
-        painter.drawLine(int(price_x), top_m, int(price_x), h - bottom_m)
+        painter.drawLine(int(px), top_m, int(px), h - bottom_m)
         painter.setPen(QColor("#2196F3"))
         painter.setFont(QFont("Arial", 9, QFont.Weight.Bold))
-        painter.drawText(int(price_x) + 5, top_m + 20, "6,610.20")
+        painter.drawText(int(px) + 5, top_m + 20, f"{self._current_price:,.2f}")
 
-    def _draw_strike_line(self, painter: QPainter) -> None:
+    def _draw_strike_lines(self, painter: QPainter) -> None:
         w = self.width()
         h = self.height()
         left_m = 50
@@ -171,9 +196,14 @@ class ChartWidget(QWidget):
         right_m = 20
         top_m = 20
         graph_w = w - left_m - right_m
-        center_x = left_m + (graph_w * 0.55)
-        painter.setPen(QPen(QColor("#555"), 1, Qt.PenStyle.DotLine))
-        painter.drawLine(int(center_x - 40), top_m, int(center_x - 40), h - bottom_m)
+        if not self._strike_lines or self._x_max == self._x_min:
+            return
+        for s in self._strike_lines:
+            px = float(left_m) + (s - self._x_min) / (
+                self._x_max - self._x_min
+            ) * float(graph_w)
+            painter.setPen(QPen(QColor("#555"), 1, Qt.PenStyle.DotLine))
+            painter.drawLine(int(px), top_m, int(px), h - bottom_m)
 
     @staticmethod
     def _draw_legend(painter: QPainter) -> None:
