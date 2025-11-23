@@ -60,6 +60,11 @@ class PanelMetrics:
     max_profit_text: str
     breakevens_text: str
     pop_text: str
+    delta_text: str
+    theta_text: str
+    gamma_text: str
+    vega_text: str
+    rho_text: str
 
 
 class MetricsPresenter:
@@ -77,10 +82,20 @@ class MetricsPresenter:
             hi = max(metrics.break_evens)
             be_text = f"Between {lo:,.2f} - {hi:,.2f}"
         pop = "-"
+        delta_t = f"{metrics.delta:.3f}"
+        gamma_t = f"{metrics.gamma:.3f}"
+        theta_t = f"{metrics.theta:.3f}"
+        vega_t = f"{metrics.vega:.3f}"
+        rho_t = "-"
         return PanelMetrics(
             net_text=net,
             max_loss_text=max_loss,
             max_profit_text=max_profit,
             breakevens_text=be_text,
             pop_text=pop,
+            delta_text=delta_t,
+            theta_text=theta_t,
+            gamma_text=gamma_t,
+            vega_text=vega_t,
+            rho_text=rho_t,
         )

@@ -25,6 +25,7 @@ from ..domain.models import (
     OptionType,
     Side,
     Strategy,
+    StrategyMetrics,
     Underlier,
 )
 from ..services.aggregation import AggregationService
@@ -39,6 +40,7 @@ from .styles import (
     CHANGE_LABEL_STYLE,
     CHART_ARROW_STYLE,
     COLOR_DANGER_RED,
+    COLOR_GRAY_900,
     COLOR_SUCCESS_GREEN,
     DATE_SLIDER_QSS,
     EXP_LABEL_STYLE,
@@ -82,6 +84,11 @@ class MainWindow(QMainWindow):
         self.metric_max_profit_lbl: QLabel | None = None
         self.metric_pop_lbl: QLabel | None = None
         self.metric_breakevens_lbl: QLabel | None = None
+        self.metric_delta_lbl: QLabel | None = None
+        self.metric_theta_lbl: QLabel | None = None
+        self.metric_gamma_lbl: QLabel | None = None
+        self.metric_vega_lbl: QLabel | None = None
+        self.metric_rho_lbl: QLabel | None = None
         self.expiry_buttons: dict[date, QPushButton] = {}
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -232,58 +239,15 @@ class MainWindow(QMainWindow):
                     self.strike_ruler.set_selected_strikes([centre])
 
     def setup_metrics(self) -> None:
-        metrics_frame = QFrame()
-        layout = QHBoxLayout(metrics_frame)
-        layout.setContentsMargins(10, 10, 10, 10)
+        metrics_container = QWidget()
+        container_vlayout = QVBoxLayout(metrics_container)
+        container_vlayout.setContentsMargins(0, 0, 0, 0)
 
-        def create_metric(
-            title: str,
-            value: str,
-            value_color: str,
-            icon_char: str | None = None,
-            subtext: str | None = None,
-        ) -> tuple[QWidget, QLabel]:
-            v_layout = QVBoxLayout()
-            t_lbl = QLabel(title)
-            t_lbl.setStyleSheet(METRIC_TITLE_STYLE)
-            val_layout = QHBoxLayout()
-            if icon_char:
-                icon = QLabel(icon_char)
-                icon.setStyleSheet(METRIC_ICON_STYLE)
-                val_layout.addWidget(icon)
-            v_lbl = QLabel(value)
-            v_lbl.setStyleSheet(
-                f"color: {value_color}; font-size: 14px; font-weight: bold;"
-            )
-            val_layout.addWidget(v_lbl)
-            val_layout.addStretch()
-            v_layout.addWidget(t_lbl)
-            v_layout.addLayout(val_layout)
-            if subtext:
-                s_lbl = QLabel(subtext)
-                s_lbl.setStyleSheet(METRIC_SUBTEXT_STYLE)
-                v_layout.addWidget(s_lbl)
-            container = QWidget()
-            container.setLayout(v_layout)
-            return container, v_lbl
-
-        m1, m1_lbl = create_metric("NET DEBIT:", "$0", "#000", "🪙")
-        m2, m2_lbl = create_metric("MAX LOSS:", "$0", "#000", "↘")
-        m3, m3_lbl = create_metric("MAX PROFIT:", "$0", "#22C55E", "↗")
-        m4, m4_lbl = create_metric("CHANCE OF PROFIT:", "-", "#000", "🎲")
-        m5, m5_lbl = create_metric("BREAKEVENS:", "-", "#000", "→")
-        self.metric_net_lbl = m1_lbl
-        self.metric_max_loss_lbl = m2_lbl
-        self.metric_max_profit_lbl = m3_lbl
-        self.metric_pop_lbl = m4_lbl
-        self.metric_breakevens_lbl = m5_lbl
-        layout.addWidget(m1)
-        layout.addWidget(m2)
-        layout.addWidget(m3)
-        layout.addWidget(m4)
-        layout.addWidget(m5)
-        layout.addStretch()
-        self.main_layout.addWidget(metrics_frame)
+        primary = self._build_primary_metrics_row()
+        greeks = self._build_greeks_row()
+        container_vlayout.addWidget(primary)
+        container_vlayout.addWidget(greeks)
+        self.main_layout.addWidget(metrics_container)
 
     def setup_chart(self) -> None:
         chart_layout = QHBoxLayout()
@@ -402,6 +366,115 @@ class MainWindow(QMainWindow):
         if self.metric_pop_lbl:
             pm = MetricsPresenter.prepare(m)
             self.metric_pop_lbl.setText(pm.pop_text)
+        self._update_greek_metrics(m)
+
+    def _build_primary_metrics_row(self) -> QWidget:
+        metrics_frame = QFrame()
+        layout = QHBoxLayout(metrics_frame)
+        layout.setContentsMargins(10, 10, 10, 10)
+        m1, m1_lbl = self._create_metric("NET DEBIT:", "$0", "#000", "🪙")
+        m2, m2_lbl = self._create_metric("MAX LOSS:", "$0", "#000", "↘")
+        m3, m3_lbl = self._create_metric("MAX PROFIT:", "$0", "#22C55E", "↗")
+        m4, m4_lbl = self._create_metric("CHANCE OF PROFIT:", "-", "#000", "🎲")
+        m5, m5_lbl = self._create_metric("BREAKEVENS:", "-", "#000", "→")
+        self.metric_net_lbl = m1_lbl
+        self.metric_max_loss_lbl = m2_lbl
+        self.metric_max_profit_lbl = m3_lbl
+        self.metric_pop_lbl = m4_lbl
+        self.metric_breakevens_lbl = m5_lbl
+        layout.addWidget(m1)
+        layout.addWidget(m2)
+        layout.addWidget(m3)
+        layout.addWidget(m4)
+        layout.addWidget(m5)
+        layout.addStretch()
+        return metrics_frame
+
+    def _build_greeks_row(self) -> QWidget:
+        greeks_frame = QFrame()
+        g_layout = QHBoxLayout(greeks_frame)
+        g_layout.setContentsMargins(10, 0, 10, 10)
+        g1, g1_lbl = self._create_metric("DELTA:", "-", "#000", "Δ")
+        g2, g2_lbl = self._create_metric("THETA:", "-", "#000", "Θ")
+        g3, g3_lbl = self._create_metric("GAMMA:", "-", "#000", "Γ")
+        g4, g4_lbl = self._create_metric("VEGA:", "-", "#000", "V")
+        g5, g5_lbl = self._create_metric("RHO:", "-", "#000", "R")
+        self.metric_delta_lbl = g1_lbl
+        self.metric_theta_lbl = g2_lbl
+        self.metric_gamma_lbl = g3_lbl
+        self.metric_vega_lbl = g4_lbl
+        self.metric_rho_lbl = g5_lbl
+        g_layout.addWidget(g1)
+        g_layout.addWidget(g2)
+        g_layout.addWidget(g3)
+        g_layout.addWidget(g4)
+        g_layout.addWidget(g5)
+        g_layout.addStretch()
+        return greeks_frame
+
+    def _update_greek_metrics(self, m: StrategyMetrics) -> None:
+        if self.metric_delta_lbl:
+            pm = MetricsPresenter.prepare(m)
+            self.metric_delta_lbl.setText(pm.delta_text)
+            self.metric_delta_lbl.setStyleSheet(
+                f"color: {COLOR_SUCCESS_GREEN if m.delta >= 0 else COLOR_DANGER_RED}; font-size: 14px; font-weight: bold;"
+            )
+        if self.metric_theta_lbl:
+            pm = MetricsPresenter.prepare(m)
+            self.metric_theta_lbl.setText(pm.theta_text)
+            self.metric_theta_lbl.setStyleSheet(
+                f"color: {COLOR_SUCCESS_GREEN if m.theta >= 0 else COLOR_DANGER_RED}; font-size: 14px; font-weight: bold;"
+            )
+        if self.metric_gamma_lbl:
+            pm = MetricsPresenter.prepare(m)
+            self.metric_gamma_lbl.setText(pm.gamma_text)
+            self.metric_gamma_lbl.setStyleSheet(
+                f"color: {COLOR_SUCCESS_GREEN if m.gamma >= 0 else COLOR_DANGER_RED}; font-size: 14px; font-weight: bold;"
+            )
+        if self.metric_vega_lbl:
+            pm = MetricsPresenter.prepare(m)
+            self.metric_vega_lbl.setText(pm.vega_text)
+            self.metric_vega_lbl.setStyleSheet(
+                f"color: {COLOR_SUCCESS_GREEN if m.vega >= 0 else COLOR_DANGER_RED}; font-size: 14px; font-weight: bold;"
+            )
+        if self.metric_rho_lbl:
+            pm = MetricsPresenter.prepare(m)
+            self.metric_rho_lbl.setText(pm.rho_text)
+            self.metric_rho_lbl.setStyleSheet(
+                f"color: {COLOR_GRAY_900}; font-size: 14px; font-weight: bold;"
+            )
+
+    @staticmethod
+    def _create_metric(
+        title: str,
+        value: str,
+        value_color: str,
+        icon_char: str | None = None,
+        subtext: str | None = None,
+    ) -> tuple[QWidget, QLabel]:
+        v_layout = QVBoxLayout()
+        t_lbl = QLabel(title)
+        t_lbl.setStyleSheet(METRIC_TITLE_STYLE)
+        val_layout = QHBoxLayout()
+        if icon_char:
+            icon = QLabel(icon_char)
+            icon.setStyleSheet(METRIC_ICON_STYLE)
+            val_layout.addWidget(icon)
+        v_lbl = QLabel(value)
+        v_lbl.setStyleSheet(
+            f"color: {value_color}; font-size: 14px; font-weight: bold;"
+        )
+        val_layout.addWidget(v_lbl)
+        val_layout.addStretch()
+        v_layout.addWidget(t_lbl)
+        v_layout.addLayout(val_layout)
+        if subtext:
+            s_lbl = QLabel(subtext)
+            s_lbl.setStyleSheet(METRIC_SUBTEXT_STYLE)
+            v_layout.addWidget(s_lbl)
+        container = QWidget()
+        container.setLayout(v_layout)
+        return container, v_lbl
 
     def update_chart(self) -> None:
         if self.strategy is None:
@@ -459,31 +532,7 @@ class MainWindow(QMainWindow):
             return
         legs = [leg for i, leg in enumerate(self.strategy.legs) if i != leg_idx]
         if not legs:
-            self.strategy = None
-            if self.metric_net_lbl:
-                self.metric_net_lbl.setText("$0")
-            if self.metric_max_loss_lbl:
-                self.metric_max_loss_lbl.setText("$0")
-            if self.metric_max_profit_lbl:
-                self.metric_max_profit_lbl.setText("$0")
-            if self.metric_pop_lbl:
-                self.metric_pop_lbl.setText("-")
-            if self.metric_breakevens_lbl:
-                self.metric_breakevens_lbl.setText("-")
-            self.strike_ruler.set_selected_strikes([])
-            self.strike_ruler.set_badges([])
-            self.chart.set_chart_data(
-                ChartData(
-                    prices=[],
-                    pnls=[],
-                    x_min=0.0,
-                    x_max=1.0,
-                    y_min=-1.0,
-                    y_max=1.0,
-                    strike_lines=[],
-                    current_price=0.0,
-                )
-            )
+            self._reset_strategy_state()
             return
         self.strategy = Strategy(
             name=self.strategy.name,
@@ -493,6 +542,40 @@ class MainWindow(QMainWindow):
         )
         self.update_metrics()
         self.update_chart()
+
+    def _reset_strategy_state(self) -> None:
+        self.strategy = None
+        self._clear_metric_labels()
+        self.strike_ruler.set_selected_strikes([])
+        self.strike_ruler.set_badges([])
+        self.chart.set_chart_data(
+            ChartData(
+                prices=[],
+                pnls=[],
+                x_min=0.0,
+                x_max=1.0,
+                y_min=-1.0,
+                y_max=1.0,
+                strike_lines=[],
+                current_price=0.0,
+            )
+        )
+
+    def _clear_metric_labels(self) -> None:
+        for lbl, val in [
+            (self.metric_net_lbl, "$0"),
+            (self.metric_max_loss_lbl, "$0"),
+            (self.metric_max_profit_lbl, "$0"),
+            (self.metric_pop_lbl, "-"),
+            (self.metric_breakevens_lbl, "-"),
+            (self.metric_delta_lbl, "-"),
+            (self.metric_theta_lbl, "-"),
+            (self.metric_gamma_lbl, "-"),
+            (self.metric_vega_lbl, "-"),
+            (self.metric_rho_lbl, "-"),
+        ]:
+            if lbl:
+                lbl.setText(val)
 
     def _on_badge_toggle(self, leg_idx: int, new_type: OptionType) -> None:
         if self.strategy is None:
