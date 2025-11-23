@@ -41,10 +41,7 @@ from .styles import (
     COLOR_DANGER_RED,
     COLOR_SUCCESS_GREEN,
     DATE_SLIDER_QSS,
-    DAY_BTN_SELECTED_STYLE,
-    DAY_BTN_STYLE,
     EXP_LABEL_STYLE,
-    HLINE_STYLE,
     IV_LABEL_STYLE,
     MARKER_LABEL_STYLE,
     METRIC_ICON_STYLE,
@@ -57,8 +54,8 @@ from .styles import (
     REFRESH_LABEL_STYLE,
     RT_HELP_STYLE,
     SYMBOL_INPUT_STYLE,
-    TIMELINE_FRAME_STYLE,
 )
+from .timeline_widget import TimelineWidget
 
 if TYPE_CHECKING:
     from collections.abc import Callable as TCallable
@@ -149,23 +146,12 @@ class MainWindow(QMainWindow):
         self.main_layout.addWidget(self.exp_label)
 
     def setup_timeline(self) -> None:
-        self.timeline_frame = QFrame()
-        self.timeline_frame.setStyleSheet(TIMELINE_FRAME_STYLE)
-        self.timeline_layout = QVBoxLayout(self.timeline_frame)
-        self.timeline_layout.setContentsMargins(0, 0, 0, 0)
-        self.timeline_layout.setSpacing(0)
-        self.month_layout = QHBoxLayout()
-        self.month_layout.setContentsMargins(10, 2, 10, 2)
-        self.timeline_layout.addLayout(self.month_layout)
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet(HLINE_STYLE)
-        self.timeline_layout.addWidget(line)
-        self.days_layout = QHBoxLayout()
-        self.days_layout.setContentsMargins(5, 2, 5, 2)
-        self.days_layout.setSpacing(15)
-        self.timeline_layout.addLayout(self.days_layout)
-        self.main_layout.addWidget(self.timeline_frame)
+        self.timeline = TimelineWidget()
+        connect_t: TCallable[..., object] = cast(
+            "TCallable[..., object]", self.timeline.expiry_selected.connect
+        )
+        connect_t(self.on_expiry_selected)
+        self.main_layout.addWidget(self.timeline)
 
     def on_symbol_changed(self) -> None:
         symbol = self.symbol_input.text().strip()
@@ -184,40 +170,11 @@ class MainWindow(QMainWindow):
         self.exp_label.setText(f"EXPIRATIONS: <b>{", ".join(parts)}</b>")
 
     def render_timeline(self) -> None:
-        self._clear_layout(self.month_layout)
-        self._clear_layout(self.days_layout)
-        months: list[str] = []
-        for d in self.expiries:
-            m = d.strftime("%b")
-            if m not in months:
-                months.append(m)
-        for m in months:
-            lbl = QLabel(m)
-            lbl.setStyleSheet(MONTH_LABEL_STYLE)
-            self.month_layout.addWidget(lbl)
-            self.month_layout.addStretch()
-        self.expiry_buttons = {}
-        for d in self.expiries:
-            btn = QPushButton(d.strftime("%d"))
-            btn.setStyleSheet(DAY_BTN_STYLE)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            connect_btn: TCallable[..., object] = cast(
-                "TCallable[..., object]", btn.clicked.connect
-            )
-            connect_btn(lambda _=False, dd=d: self.on_expiry_selected(dd))
-            self.days_layout.addWidget(btn)
-            self.expiry_buttons[d] = btn
-        self.days_layout.addStretch()
-        if self.expiries:
-            self.on_expiry_selected(self.expiries[0])
+        self.timeline.set_expiries(self.expiries)
 
     def on_expiry_selected(self, d: date) -> None:
         self.selected_expiry = d
-        for ed, btn in self.expiry_buttons.items():
-            if ed == d:
-                btn.setStyleSheet(DAY_BTN_SELECTED_STYLE)
-            else:
-                btn.setStyleSheet(DAY_BTN_STYLE)
+        self.timeline.select_expiry(d)
         self.load_strikes_for_expiry()
 
     @staticmethod
