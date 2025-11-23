@@ -28,7 +28,7 @@ class MockOptionsDataService:
         if symbol.upper() == "SPX":
             centre = 6600.0
             step = 10.0
-            range_pts = 300.0
+            range_pts = 500.0
             start = centre - range_pts
             end = centre + range_pts
             n = int((end - start) / step) + 1

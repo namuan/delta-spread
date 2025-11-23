@@ -218,11 +218,16 @@ class MainWindow(QMainWindow):
         if hasattr(self, "strike_ruler"):
             self.strike_ruler.set_strikes(self.strikes)
             if self.strikes:
-                centre = self.strikes[len(self.strikes) // 2]
-                self.strike_ruler.center_on_value(centre)
-                self.strike_ruler.set_selected_strikes([centre])
                 if symbol.upper() == "SPX":
-                    self.strike_ruler.set_current_price(6600.0, "SPX")
+                    target = 6600.0
+                    nearest = min(self.strikes, key=lambda s: abs(s - target))
+                    self.strike_ruler.center_on_value(target)
+                    self.strike_ruler.set_selected_strikes([nearest])
+                    self.strike_ruler.set_current_price(target, "SPX")
+                else:
+                    centre = self.strikes[len(self.strikes) // 2]
+                    self.strike_ruler.center_on_value(centre)
+                    self.strike_ruler.set_selected_strikes([centre])
 
     def setup_metrics(self) -> None:
         metrics_frame = QFrame()
@@ -302,7 +307,23 @@ class MainWindow(QMainWindow):
             return
         symbol = self.symbol_input.text().strip()
         centre = self.strikes[len(self.strikes) // 2]
-        spot = centre
+        anchor = (
+            self.strike_ruler.get_center_strike()
+            if hasattr(self, "strike_ruler")
+            else None
+        )
+        strike_chosen = float(anchor) if anchor is not None else float(centre)
+        spot = (
+            self.strategy.underlier.spot
+            if self.strategy is not None
+            else (
+                self.strike_ruler.get_current_price()
+                if hasattr(self, "strike_ruler")
+                else None
+            )
+        )
+        if spot is None:
+            spot = centre
         underlier = Underlier(
             symbol=symbol or "SPX", spot=float(spot), multiplier=100, currency="USD"
         )
@@ -316,7 +337,7 @@ class MainWindow(QMainWindow):
             side, otype = Side.SELL, OptionType.PUT
         else:
             return
-        strike = min(self.strikes, key=lambda s: abs(s - spot))
+        strike = strike_chosen
         contract = OptionContract(
             underlier=underlier,
             expiry=self.selected_expiry,

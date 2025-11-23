@@ -69,6 +69,12 @@ class StrikeRuler(QWidget):
         self._selected = set(strikes)
         self.update()
 
+    def get_center_strike(self) -> float | None:
+        return self._center_strike
+
+    def get_current_price(self) -> float | None:
+        return self._current_price
+
     def set_badges(self, badges: list[BadgeSpec]) -> None:
         for w in self._badge_widgets:
             w.setParent(None)
@@ -87,12 +93,20 @@ class StrikeRuler(QWidget):
         p = QPainter(self)
         w = self.width()
         h = self.height()
-        p.setPen(QColor(COLOR_GRAY_200))
-        p.drawLine(0, h // 2, w, h // 2)
+        self._draw_baseline(p, w, h)
         if not self._strikes:
             return
+        self._draw_strike_ticks(p, w, h)
+        self._draw_current_price_indicator(p, w)
+        self._position_badges()
+
+    @staticmethod
+    def _draw_baseline(p: QPainter, w: int, h: int) -> None:
+        p.setPen(QColor(COLOR_GRAY_200))
+        p.drawLine(0, h // 2, w, h // 2)
+
+    def _draw_strike_ticks(self, p: QPainter, w: int, h: int) -> None:
         p.setFont(QFont("Arial", 8))
-        p.setPen(QColor(COLOR_TEXT_PRIMARY))
         margin = 50
         for i, s in enumerate(self._strikes):
             x = i * self._pixel_step - self._scroll_x
@@ -100,25 +114,60 @@ class StrikeRuler(QWidget):
                 continue
             tick_h_top = 10
             tick_h_bottom = 10
-            color = (
-                QColor(COLOR_DANGER_RED)
-                if s in self._selected
-                else QColor(COLOR_TEXT_PRIMARY)
-            )
+            color = QColor(COLOR_TEXT_PRIMARY)
             p.setPen(color)
             if self._center_strike is not None and s == self._center_strike:
                 p.setBrush(color)
                 p.drawEllipse(int(x) - 3, int(h // 2) - 3, 6, 6)
             elif s in self._selected:
-                tick_h_top = 14
-                tick_h_bottom = 14
+                tick_h_top = 12
+                tick_h_bottom = 12
             p.drawLine(int(x), int(h // 2 - tick_h_top), int(x), int(h // 2))
             p.drawLine(int(x), int(h // 2), int(x), int(h // 2 + tick_h_bottom))
             label = f"{s:.2f}".rstrip("0").rstrip(".")
             rect = QRect(int(x) - 22, int(h // 2 - 24), 44, 16)
             p.drawText(rect, Qt.AlignmentFlag.AlignCenter, label)
 
-        self._position_badges()
+    def _draw_current_price_indicator(self, p: QPainter, w: int) -> None:
+        if self._current_price is None:
+            return
+        margin = 50
+        x_price = self._compute_price_x(self._current_price)
+        if x_price is None:
+            return
+        if -margin <= x_price <= w + margin:
+            p.setPen(QColor(COLOR_DANGER_RED))
+            txt = (
+                f"{self._current_label}".strip()
+                if self._current_label is not None
+                else f"{self._current_price:.2f}"
+            )
+            rect = QRect(int(x_price) - 35, 2, 70, 16)
+            p.drawText(rect, Qt.AlignmentFlag.AlignCenter, txt)
+
+    def _compute_price_x(self, price: float) -> float | None:
+        if not self._strikes:
+            return None
+        idx = self._nearest_index(price)
+        if idx <= 0:
+            x_base = 0
+            frac = 0.0
+        elif idx >= len(self._strikes) - 1:
+            x_base = (len(self._strikes) - 1) * self._pixel_step
+            frac = 0.0
+        else:
+            s0 = self._strikes[idx]
+            if price >= s0:
+                s1 = self._strikes[idx + 1]
+                step = max(1e-9, s1 - s0)
+                frac = max(0.0, min(1.0, (price - s0) / step))
+                x_base = idx * self._pixel_step
+            else:
+                s1 = self._strikes[idx - 1]
+                step = max(1e-9, s0 - s1)
+                frac = max(0.0, min(1.0, (price - s1) / step))
+                x_base = (idx - 1) * self._pixel_step
+        return x_base + frac * self._pixel_step - self._scroll_x
 
     def _position_badges(self) -> None:
         if not self._badge_widgets:
@@ -131,19 +180,14 @@ class StrikeRuler(QWidget):
         h_height = self.height()
         top_y = 0
         bottom_y = max(0, h_height - 25 - 6)
-        buckets: dict[int, int] = {}
         for idx, spec in enumerate(self._badge_specs):
             si = self._nearest_index(spec["strike"])
             x = si * self._pixel_step - self._scroll_x
-            b = round(x / 10)
-            c = buckets.get(b, 0) + 1
-            buckets[b] = c
-            delta = 12 * c * (-1 if c % 2 else 1)
             x_adj = max(
                 0,
                 min(
                     w_width - self._badge_widgets[idx].width(),
-                    x + delta - self._badge_widgets[idx].width() // 2,
+                    x - self._badge_widgets[idx].width() // 2,
                 ),
             )
             self._badge_widgets[idx].move(
