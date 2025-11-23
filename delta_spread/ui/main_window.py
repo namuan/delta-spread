@@ -38,6 +38,8 @@ from .styles import (
     BUTTON_PRIMARY_STYLE,
     CHANGE_LABEL_STYLE,
     CHART_ARROW_STYLE,
+    COLOR_DANGER_RED,
+    COLOR_SUCCESS_GREEN,
     DATE_SLIDER_QSS,
     DAY_BTN_SELECTED_STYLE,
     DAY_BTN_STYLE,
@@ -62,6 +64,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable as TCallable
 
     from ..services.options_data import OptionsDataService
+    from .strike_ruler import BadgeSpec
 
 
 class MainWindow(QMainWindow):
@@ -232,14 +235,14 @@ class MainWindow(QMainWindow):
 
     def setup_strikes(self) -> None:
         container = QWidget()
-        container.setFixedHeight(60)
+        container.setFixedHeight(120)
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         lbl = QLabel("STRIKES:")
         lbl.setStyleSheet(MONTH_LABEL_STYLE)
         layout.addWidget(lbl)
         self.strike_ruler = StrikeRuler()
-        self.strike_ruler.setFixedHeight(40)
+        self.strike_ruler.setFixedHeight(100)
         layout.addWidget(self.strike_ruler)
         self.main_layout.addWidget(container)
 
@@ -412,6 +415,7 @@ class MainWindow(QMainWindow):
             return
         ivs: dict[tuple[float, OptionType], float] = {}
         strikes_sel: list[float] = []
+        badges: list[BadgeSpec] = []
         for leg in self.strategy.legs:
             strikes_sel.append(leg.contract.strike)
             q = self.data_service.get_quote(
@@ -421,6 +425,24 @@ class MainWindow(QMainWindow):
                 leg.contract.type,
             )
             ivs[leg.contract.strike, leg.contract.type] = q.iv
+            color = (
+                COLOR_SUCCESS_GREEN
+                if leg.contract.type is OptionType.CALL
+                else COLOR_DANGER_RED
+            )
+            placement = "top" if leg.side is Side.BUY else "bottom"
+            text = f"{leg.side.name} {leg.contract.type.name}"
+            badges.append(
+                cast(
+                    "BadgeSpec",
+                    {
+                        "strike": leg.contract.strike,
+                        "text": text,
+                        "color_bg": color,
+                        "placement": placement,
+                    },
+                )
+            )
         m = self.aggregator.aggregate(
             self.strategy, spot=self.strategy.underlier.spot, ivs=ivs
         )
@@ -428,6 +450,7 @@ class MainWindow(QMainWindow):
             "Updated chart: net=%.2f, be=%s", m.net_debit_credit, m.break_evens
         )
         self.strike_ruler.set_selected_strikes(strikes_sel)
+        self.strike_ruler.set_badges(badges)
         cd = ChartPresenter.prepare(
             m,
             strike_lines=strikes_sel,
