@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import TypedDict, override
 
 from PyQt6.QtCore import QRect, Qt
@@ -12,6 +13,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import QWidget
 
+from ..domain.models import OptionType
 from .option_badge import OptionBadge
 from .styles import (
     COLOR_DANGER_RED,
@@ -25,6 +27,7 @@ class BadgeSpec(TypedDict):
     text: str
     color_bg: str
     placement: str
+    leg_idx: int
 
 
 class StrikeRuler(QWidget):
@@ -41,6 +44,12 @@ class StrikeRuler(QWidget):
         self._current_price: float | None = None
         self._current_label: str | None = None
         self._center_strike: float | None = None
+        self._toggle_handler: Callable[[int, OptionType], None] | None = None
+
+    def set_toggle_handler(
+        self, handler: Callable[[int, OptionType], None] | None
+    ) -> None:
+        self._toggle_handler = handler
 
     def set_strikes(self, strikes: list[float]) -> None:
         self._strikes = strikes
@@ -84,6 +93,8 @@ class StrikeRuler(QWidget):
         for b in badges:
             pointer_up = b["placement"] == "bottom"
             w = OptionBadge(b["text"], b["color_bg"], pointer_up=pointer_up)
+            if self._toggle_handler is not None:
+                w.set_toggle_context(b["leg_idx"], self._toggle_handler)
             w.setParent(self)
             self._badge_widgets.append(w)
         self._position_badges()
