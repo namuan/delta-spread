@@ -152,7 +152,13 @@ max-nested-blocks = 3  # Maximum nested block depth (PLR1702)
     "ANN",     # Don't require annotations in tests
     "FBT",     # Allow boolean args in tests
 ]
-"delta_spread/__main__.py" = [
+"delta_spread/ui/chart_widget.py" = [
+    "N802",    # Qt event handler naming (paintEvent)
+]
+"delta_spread/ui/option_badge.py" = [
+    "N802",    # Qt event handler naming (paintEvent)
+]
+"delta_spread/ui/strike_ruler.py" = [
     "N802",    # Qt event handler naming (paintEvent)
 ]
 

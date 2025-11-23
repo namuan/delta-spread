@@ -2,16 +2,6 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 import hashlib
-from typing import TYPE_CHECKING, Protocol
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
-
-
-class OptionsDataService(Protocol):
-    def get_expiries(self) -> Sequence[date]: ...
-
-    def get_strikes(self, symbol: str, expiry: date) -> Sequence[float]: ...
 
 
 class MockOptionsDataService:
