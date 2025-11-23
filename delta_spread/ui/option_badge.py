@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import TYPE_CHECKING, TypedDict, cast, override
+from typing import TYPE_CHECKING, Protocol, TypedDict, cast, override
 
 from PyQt6.QtCore import QPoint, Qt
 from PyQt6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPainterPath, QPaintEvent
@@ -29,6 +29,14 @@ if TYPE_CHECKING:
     from collections.abc import Callable as TCallable
 
 
+class _HasStrikeAtX(Protocol):
+    def strike_at_x(self, x_local: int) -> float: ...
+
+
+class _HasDragHighlight(Protocol):
+    def set_drag_highlight(self, strike: float | None) -> None: ...
+
+
 class OptionBadge(QWidget):
     def __init__(
         self,
@@ -46,6 +54,13 @@ class OptionBadge(QWidget):
         self._leg_idx: int | None = None
         self._toggle_handler: Callable[[int, OptionType], None] | None = None
         self._remove_handler: Callable[[int], None] | None = None
+        self._move_handler: Callable[[int, float], None] | None = None
+        self._press_x: int = 0
+        self._press_y: int = 0
+        self._drag_start_x: int = 0
+        self._drag_start_y: int = 0
+        self._dragging: bool = False
+        self._drag_threshold: int = 7
         self.setFixedSize(50, 25)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
@@ -64,6 +79,14 @@ class OptionBadge(QWidget):
     ) -> None:
         self._leg_idx = leg_idx
         self._remove_handler = handler
+
+    def set_move_context(
+        self,
+        leg_idx: int,
+        handler: Callable[[int, float], None] | None,
+    ) -> None:
+        self._leg_idx = leg_idx
+        self._move_handler = handler
 
     @override
     def paintEvent(self, a0: QPaintEvent | None) -> None:
@@ -95,27 +118,95 @@ class OptionBadge(QWidget):
     @override
     def mousePressEvent(self, a0: QMouseEvent | None) -> None:
         if a0 and a0.button() == Qt.MouseButton.LeftButton:
-            popup = OptionDetailPopup(
-                self,
-                is_call=self.is_call,
-                on_toggle=self._toggle_handler,
-                on_remove=self._remove_handler,
-                leg_idx=self._leg_idx,
-            )
-            popup.adjustSize()
-            anchor_local = QPoint(
-                self.width() // 2, 0 if self.pointer_up else self.height()
-            )
-            anchor_global = self.mapToGlobal(anchor_local)
-            x = anchor_global.x() - popup.width() // 2
-            y = (
-                anchor_global.y() - popup.height() - 8
-                if self.pointer_up
-                else anchor_global.y() + 8
-            )
-            popup.move(x, y)
-            popup.show()
+            self._press_x = int(a0.position().x())
+            self._press_y = int(a0.position().y())
+            self._drag_start_x = self.x()
+            self._drag_start_y = self.y()
+            self._dragging = False
+            a0.accept()
+            return
         super().mousePressEvent(a0)
+
+    @override
+    def mouseMoveEvent(self, a0: QMouseEvent | None) -> None:
+        if a0 is None:
+            super().mouseMoveEvent(a0)
+            return
+        if a0.buttons() & Qt.MouseButton.LeftButton:
+            parent = self.parentWidget()
+            if parent is None:
+                a0.accept()
+                return
+            gp = a0.globalPosition()
+            parent_pos = parent.mapFromGlobal(gp.toPoint())
+            dx = int(parent_pos.x()) - (self._drag_start_x + self._press_x)
+            if not self._dragging and abs(dx) >= self._drag_threshold:
+                self._dragging = True
+                self.setCursor(Qt.CursorShape.ClosedHandCursor)
+                self.raise_()
+            if self._dragging:
+                new_x = self._drag_start_x + dx
+                max_x = max(0, parent.width() - self.width())
+                new_x = max(new_x, 0)
+                new_x = min(new_x, max_x)
+                self.move(new_x, self._drag_start_y)
+                if hasattr(parent, "strike_at_x") and hasattr(
+                    parent, "set_drag_highlight"
+                ):
+                    centre_x = new_x + (self.width() // 2)
+                    strike = cast("_HasStrikeAtX", parent).strike_at_x(centre_x)
+                    cast("_HasDragHighlight", parent).set_drag_highlight(float(strike))
+            a0.accept()
+            return
+        super().mouseMoveEvent(a0)
+
+    @override
+    def mouseReleaseEvent(self, a0: QMouseEvent | None) -> None:
+        if not (a0 and a0.button() == Qt.MouseButton.LeftButton):
+            super().mouseReleaseEvent(a0)
+            return
+        if self._dragging:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+            parent = self.parentWidget()
+            if (
+                parent is not None
+                and self._move_handler is not None
+                and self._leg_idx is not None
+                and hasattr(parent, "strike_at_x")
+            ):
+                centre_x = self.x() + (self.width() // 2)
+                new_strike = cast("_HasStrikeAtX", parent).strike_at_x(centre_x)
+                self._move_handler(self._leg_idx, float(new_strike))
+                if hasattr(parent, "set_drag_highlight"):
+                    cast("_HasDragHighlight", parent).set_drag_highlight(None)
+            self._dragging = False
+            a0.accept()
+            return
+        popup = OptionDetailPopup(
+            self,
+            is_call=self.is_call,
+            on_toggle=self._toggle_handler,
+            on_remove=self._remove_handler,
+            leg_idx=self._leg_idx,
+        )
+        popup.adjustSize()
+        anchor_local = QPoint(
+            self.width() // 2, 0 if self.pointer_up else self.height()
+        )
+        anchor_global = self.mapToGlobal(anchor_local)
+        x = anchor_global.x() - popup.width() // 2
+        y = (
+            anchor_global.y() - popup.height() - 8
+            if self.pointer_up
+            else anchor_global.y() + 8
+        )
+        popup.move(x, y)
+        popup.show()
+        a0.accept()
+        return
+
+    def is_dragging(self) -> bool:
+        return self._dragging
 
 
 class OptionDetailPopup(QDialog):

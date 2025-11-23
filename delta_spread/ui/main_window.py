@@ -216,6 +216,7 @@ class MainWindow(QMainWindow):
         self.strike_ruler.setFixedHeight(100)
         self.strike_ruler.set_toggle_handler(self._on_badge_toggle)
         self.strike_ruler.set_remove_handler(self._on_badge_remove)
+        self.strike_ruler.set_move_handler(self._on_badge_move)
         layout.addWidget(self.strike_ruler)
         self.main_layout.addWidget(container)
 
@@ -595,6 +596,41 @@ class MainWindow(QMainWindow):
             leg.contract.expiry,
             leg.contract.strike,
             new_type,
+        )
+        legs[leg_idx] = OptionLeg(
+            contract=contract,
+            side=leg.side,
+            quantity=leg.quantity,
+            entry_price=quote.mid,
+            notes=leg.notes,
+        )
+        self.strategy = Strategy(
+            name=self.strategy.name,
+            underlier=self.strategy.underlier,
+            legs=legs,
+            constraints=self.strategy.constraints,
+        )
+        self.update_metrics()
+        self.update_chart()
+
+    def _on_badge_move(self, leg_idx: int, new_strike: float) -> None:
+        if self.strategy is None:
+            return
+        if leg_idx < 0 or leg_idx >= len(self.strategy.legs):
+            return
+        legs = list(self.strategy.legs)
+        leg = legs[leg_idx]
+        contract = OptionContract(
+            underlier=leg.contract.underlier,
+            expiry=leg.contract.expiry,
+            strike=float(new_strike),
+            type=leg.contract.type,
+        )
+        quote = self.data_service.get_quote(
+            self.strategy.underlier.symbol,
+            leg.contract.expiry,
+            float(new_strike),
+            leg.contract.type,
         )
         legs[leg_idx] = OptionLeg(
             contract=contract,

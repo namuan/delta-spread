@@ -18,6 +18,7 @@ from .option_badge import OptionBadge
 from .styles import (
     COLOR_DANGER_RED,
     COLOR_GRAY_200,
+    COLOR_HOVER_BLUE,
     COLOR_TEXT_PRIMARY,
 )
 
@@ -46,6 +47,8 @@ class StrikeRuler(QWidget):
         self._center_strike: float | None = None
         self._toggle_handler: Callable[[int, OptionType], None] | None = None
         self._remove_handler: Callable[[int], None] | None = None
+        self._move_handler: Callable[[int, float], None] | None = None
+        self._highlight_strike: float | None = None
 
     def set_toggle_handler(
         self, handler: Callable[[int, OptionType], None] | None
@@ -54,6 +57,9 @@ class StrikeRuler(QWidget):
 
     def set_remove_handler(self, handler: Callable[[int], None] | None) -> None:
         self._remove_handler = handler
+
+    def set_move_handler(self, handler: Callable[[int, float], None] | None) -> None:
+        self._move_handler = handler
 
     def set_strikes(self, strikes: list[float]) -> None:
         self._strikes = strikes
@@ -101,6 +107,8 @@ class StrikeRuler(QWidget):
                 w.set_toggle_context(b["leg_idx"], self._toggle_handler)
             if self._remove_handler is not None:
                 w.set_remove_context(b["leg_idx"], self._remove_handler)
+            if self._move_handler is not None:
+                w.set_move_context(b["leg_idx"], self._move_handler)
             w.setParent(self)
             self._badge_widgets.append(w)
         self._position_badges()
@@ -115,7 +123,6 @@ class StrikeRuler(QWidget):
             return
         self._draw_strike_ticks(p, w, h)
         self._draw_current_price_indicator(p, w)
-        self._position_badges()
 
     @staticmethod
     def _draw_baseline(p: QPainter, w: int, h: int) -> None:
@@ -132,6 +139,10 @@ class StrikeRuler(QWidget):
             tick_h_top = 10
             tick_h_bottom = 10
             color = QColor(COLOR_TEXT_PRIMARY)
+            if self._highlight_strike is not None and s == self._highlight_strike:
+                color = QColor(COLOR_HOVER_BLUE)
+                tick_h_top = 14
+                tick_h_bottom = 14
             p.setPen(color)
             if self._center_strike is not None and s == self._center_strike:
                 p.setBrush(color)
@@ -198,19 +209,21 @@ class StrikeRuler(QWidget):
         top_y = 0
         bottom_y = max(0, h_height - 25 - 6)
         for idx, spec in enumerate(self._badge_specs):
+            bw = self._badge_widgets[idx]
+            if hasattr(bw, "is_dragging") and bw.is_dragging():
+                bw.show()
+                continue
             si = self._nearest_index(spec["strike"])
             x = si * self._pixel_step - self._scroll_x
             x_adj = max(
                 0,
                 min(
-                    w_width - self._badge_widgets[idx].width(),
-                    x - self._badge_widgets[idx].width() // 2,
+                    w_width - bw.width(),
+                    x - bw.width() // 2,
                 ),
             )
-            self._badge_widgets[idx].move(
-                x_adj, top_y if spec["placement"] == "top" else bottom_y
-            )
-            self._badge_widgets[idx].show()
+            bw.move(x_adj, top_y if spec["placement"] == "top" else bottom_y)
+            bw.show()
 
     @override
     def resizeEvent(self, a0: QResizeEvent | None) -> None:
@@ -227,6 +240,30 @@ class StrikeRuler(QWidget):
 
     def _content_width(self) -> int:
         return len(self._strikes) * self._pixel_step
+
+    def strike_at_x(self, x_local: int) -> float:
+        if not self._strikes:
+            return 0.0
+        idx = max(
+            0,
+            min(
+                len(self._strikes) - 1,
+                round((x_local + self._scroll_x) / self._pixel_step),
+            ),
+        )
+        return self._strikes[idx]
+
+    def x_for_strike(self, strike: float) -> int:
+        if not self._strikes:
+            return 0
+        si = self._nearest_index(strike)
+        return int(si * self._pixel_step - self._scroll_x)
+
+    def set_drag_highlight(self, strike: float | None) -> None:
+        if self._highlight_strike == strike:
+            return
+        self._highlight_strike = strike
+        self.update()
 
     @override
     def mousePressEvent(self, a0: QMouseEvent | None) -> None:
