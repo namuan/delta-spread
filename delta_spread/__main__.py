@@ -1,11 +1,10 @@
 from datetime import date
 import sys
 
-from PyQt6.QtCore import QPointF, QRect, Qt
+from PyQt6.QtCore import QPoint, QPointF, QRect, Qt
 from PyQt6.QtGui import (
     QColor,
     QFont,
-    QIcon,
     QLinearGradient,
     QPainter,
     QPainterPath,
@@ -20,11 +19,13 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QPushButton,
     QSizePolicy,
     QSlider,
     QVBoxLayout,
     QWidget,
+    QWidgetAction,
 )
 
 from .options_data_mock import MockOptionsDataService
@@ -308,54 +309,14 @@ class MainWindow(QMainWindow):
             "background-color: #FFFFFF; color: #333333; font-family: 'Segoe UI', Arial;"
         )
 
-        self.setup_header()
         self.setup_instrument_info()
         self.setup_timeline()
         self.setup_strikes()
         self.setup_metrics()
         self.setup_chart()
         self.setup_footer_controls()
-        self.setup_bottom_tabs()
 
         self.on_symbol_changed()
-
-    def setup_header(self) -> None:
-        header_layout = QHBoxLayout()
-
-        # Title
-        title = QLabel("Diagonal Put Spread")
-        title.setStyleSheet("font-size: 20px; font-weight: bold; color: #222;")
-        help_icon = QLabel("?")
-        help_icon.setStyleSheet(
-            "border: 1px solid #AAA; border-radius: 9px; min-width: 18px; min-height: 18px; qproperty-alignment: AlignCenter; color: #555;"
-        )
-
-        header_layout.addWidget(title)
-        header_layout.addWidget(help_icon)
-        header_layout.addStretch()
-
-        # Buttons
-        btn_style = """
-            QPushButton {
-                background-color: #3B82F6;
-                color: white;
-                border-radius: 4px;
-                padding: 5px 10px;
-                font-weight: bold;
-            }
-            QPushButton:hover { background-color: #2563EB; }
-        """
-
-        btn_add = QPushButton("Add +")
-        btn_pos = QPushButton("Positions (2)")
-        btn_save = QPushButton("Save Trade")
-        btn_hist = QPushButton("Historical Chart")
-
-        for btn in [btn_add, btn_pos, btn_save, btn_hist]:
-            btn.setStyleSheet(btn_style)
-            header_layout.addWidget(btn)
-
-        self.main_layout.addLayout(header_layout)
 
     def setup_instrument_info(self) -> None:
         info_layout = QHBoxLayout()
@@ -393,6 +354,29 @@ class MainWindow(QMainWindow):
         info_layout.addWidget(realtime_label)
         info_layout.addWidget(rt_help)
         info_layout.addStretch()
+
+        btn_style = """
+            QPushButton {
+                background-color: #3B82F6;
+                color: white;
+                border-radius: 4px;
+                padding: 5px 10px;
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #2563EB; }
+        """
+
+        self.btn_add = QPushButton("Add +")
+        btn_pos = QPushButton("Positions (2)")
+        btn_save = QPushButton("Save Trade")
+        btn_hist = QPushButton("Historical Chart")
+
+        for btn in [self.btn_add, btn_pos, btn_save, btn_hist]:
+            btn.setStyleSheet(btn_style)
+            info_layout.addWidget(btn)
+
+        self.add_menu = self._build_add_menu()
+        self.btn_add.clicked.connect(self.show_add_menu)
 
         self.main_layout.addLayout(info_layout)
 
@@ -592,6 +576,52 @@ class MainWindow(QMainWindow):
 
         self.main_layout.addLayout(chart_layout)
 
+    def _build_add_menu(self) -> QMenu:
+        menu = QMenu(self)
+        menu.setStyleSheet("QMenu { background: white; border: 1px solid #CCC; }")
+        header_action = QWidgetAction(self)
+        header_label = QLabel("Options:")
+        header_label.setStyleSheet("color: #666; font-weight: bold; padding: 6px 12px;")
+        header_action.setDefaultWidget(header_label)
+        menu.addAction(header_action)
+
+        def make_row(left: str, right: str, color: str, key: str) -> QWidgetAction:
+            w = QWidget()
+            row_layout = QHBoxLayout(w)
+            row_layout.setContentsMargins(12, 6, 12, 6)
+            a = QLabel(left)
+            a.setStyleSheet("color: #333; font-size: 12px;")
+            b = QLabel(right)
+            b.setStyleSheet(f"color: {color}; font-size: 12px; font-weight: bold;")
+            row_layout.addWidget(a)
+            row_layout.addSpacing(8)
+            row_layout.addWidget(b)
+            w.setStyleSheet("QWidget:hover { background: #F5F5F5; }")
+
+            act = QWidgetAction(self)
+            act.setDefaultWidget(w)
+
+            def handler() -> None:
+                self.on_add_option(key)
+                menu.close()
+
+            w.mouseReleaseEvent = lambda _event: handler()
+            return act
+
+        menu.addAction(make_row("Buy", "Call", "#16A34A", "buy_call"))
+        menu.addAction(make_row("Sell", "Call", "#16A34A", "sell_call"))
+        menu.addAction(make_row("Buy", "Put", "#DC2626", "buy_put"))
+        menu.addAction(make_row("Sell", "Put", "#DC2626", "sell_put"))
+        return menu
+
+    def show_add_menu(self) -> None:
+        p = self.btn_add.mapToGlobal(self.btn_add.rect().bottomLeft())
+        p = QPoint(p.x() + 8, p.y() + 4)
+        self.add_menu.exec(p)
+
+    def on_add_option(self, key: str) -> None:
+        pass
+
     def setup_footer_controls(self) -> None:
         controls_layout = QVBoxLayout()
         controls_layout.addLayout(self._build_date_row())
@@ -681,56 +711,7 @@ class MainWindow(QMainWindow):
         return slider
 
     def setup_bottom_tabs(self) -> None:
-        tab_layout = QHBoxLayout()
-        tab_layout.setSpacing(0)
-
-        buttons = [
-            ("Table", False),
-            ("Graph", True),
-            ("Profit / Loss $", True),
-            ("Profit / Loss %", False),
-            ("Contract Value", False),
-            ("% of Max Risk", False),
-            ("More", False),
-        ]
-
-        for text, is_active in buttons:
-            btn = QPushButton(text)
-
-            if "Table" in text:
-                btn.setIcon(QIcon.fromTheme("view-list-details"))  # Placeholder logic
-                # Text prefix icon simulation
-                btn.setText(" 田 " + text)
-            elif "Graph" in text:
-                btn.setText(" 📈 " + text)
-            elif "More" in text:
-                btn.setText("▼ " + text)
-
-            if is_active:
-                if text == "Graph":
-                    # Blue active
-                    style = "background-color: #5CACEE; color: white; border: 1px solid #5CACEE;"
-                elif text == "Profit / Loss $":
-                    # Light blue active
-                    style = "background-color: #5CACEE; color: white; border: 1px solid #5CACEE;"
-                else:
-                    style = (
-                        "background-color: white; color: #333; border: 1px solid #CCC;"
-                    )
-            else:
-                style = "background-color: white; color: #333; border: 1px solid #CCC;"
-
-            btn.setStyleSheet(f"""
-                QPushButton {{
-                    {style}
-                    padding: 8px;
-                    font-size: 12px;
-                    font-weight: bold;
-                }}
-            """)
-            tab_layout.addWidget(btn)
-
-        self.main_layout.addLayout(tab_layout)
+        pass
 
 
 if __name__ == "__main__":
