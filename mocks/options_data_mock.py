@@ -25,6 +25,14 @@ class MockOptionsDataService:
 
     @staticmethod
     def get_strikes(symbol: str, expiry: date) -> list[float]:
+        if symbol.upper() == "SPX":
+            centre = 6600.0
+            step = 10.0
+            range_pts = 300.0
+            start = centre - range_pts
+            end = centre + range_pts
+            n = int((end - start) / step) + 1
+            return [round(start + i * step, 2) for i in range(n)]
         strike_base_low_threshold = 100
         strike_base_medium_threshold = 200
         seed_bytes = hashlib.sha256(f"{symbol}|{expiry.isoformat()}".encode()).digest()

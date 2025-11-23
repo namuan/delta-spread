@@ -217,6 +217,12 @@ class MainWindow(QMainWindow):
         self.strikes = list(self.data_service.get_strikes(symbol, self.selected_expiry))
         if hasattr(self, "strike_ruler"):
             self.strike_ruler.set_strikes(self.strikes)
+            if self.strikes:
+                centre = self.strikes[len(self.strikes) // 2]
+                self.strike_ruler.center_on_value(centre)
+                self.strike_ruler.set_selected_strikes([centre])
+                if symbol.upper() == "SPX":
+                    self.strike_ruler.set_current_price(6600.0, "SPX")
 
     def setup_metrics(self) -> None:
         metrics_frame = QFrame()
