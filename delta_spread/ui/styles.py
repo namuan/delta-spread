@@ -29,7 +29,7 @@ BUTTON_PRIMARY_STYLE = f"""
     QPushButton:hover {{ background-color: {COLOR_PRIMARY_HOVER}; }}
     """
 
-TIMELINE_FRAME_STYLE = f"background-color: {COLOR_GRAY_100}; border-radius: 3px;"
+TIMELINE_FRAME_STYLE = "background-color: transparent; border-radius: 3px;"
 HLINE_STYLE = f"color: {COLOR_GRAY_400};"
 MONTH_LABEL_STYLE = f"color: {COLOR_GRAY_900}; font-weight: bold; font-size: 12px;"
 MONTH_BAR_STYLE = (
@@ -46,8 +46,20 @@ REALTIME_LABEL_STYLE = f"color: {COLOR_GRAY_600};"
 RT_HELP_STYLE = f"border: 1px solid {COLOR_GRAY_500}; border-radius: 7px; min-width: 14px; min-height: 14px; qproperty-alignment: AlignCenter; font-size: 10px; color: {COLOR_GRAY_900};"
 EXP_LABEL_STYLE = "font-size: 12px;"
 
-DAY_BTN_STYLE = f"color: {COLOR_TEXT_PRIMARY}; font-size: 11px; font-weight: bold;"
-DAY_BTN_SELECTED_STYLE = f"background-color: {COLOR_ACCENT_BLUE}; color: white; border-radius: 2px; padding: 2px 5px;"
+DAY_BTN_STYLE = f"""
+    QPushButton {{
+        background-color: transparent;
+        color: {COLOR_TEXT_PRIMARY};
+        font-size: 11px;
+        font-weight: bold;
+        border-radius: 2px;
+        padding: 2px 5px;
+    }}
+    QPushButton:hover {{
+        background-color: {COLOR_HOVER_BLUE};
+    }}
+    """
+DAY_BTN_SELECTED_STYLE = f"background-color: {COLOR_PRIMARY}; color: white; border-radius: 2px; padding: 2px 5px;"
 
 METRIC_TITLE_STYLE = f"color: {COLOR_GRAY_800}; font-size: 10px; font-weight: bold;"
 METRIC_ICON_STYLE = "font-size: 12px;"
