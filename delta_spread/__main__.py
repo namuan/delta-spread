@@ -426,6 +426,9 @@ class MainWindow(QMainWindow):
         self.main_layout.addWidget(self.timeline_frame)
 
     def on_symbol_changed(self) -> None:
+        symbol = self.symbol_input.text().strip()
+        if not symbol:
+            return
         self.load_expiries()
 
     def load_expiries(self) -> None:
@@ -460,6 +463,8 @@ class MainWindow(QMainWindow):
             self.days_layout.addWidget(btn)
             self.expiry_buttons[d] = btn
         self.days_layout.addStretch()
+        if self.expiries:
+            self.on_expiry_selected(self.expiries[0])
 
     def on_expiry_selected(self, d: date) -> None:
         self.selected_expiry = d
