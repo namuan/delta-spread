@@ -11,12 +11,17 @@ class MockOptionsDataService:
 
     def get_expiries(self) -> list[date]:
         base = self._today
-        target = 4
-        offset = (target - base.weekday()) % 7
-        if offset == 0:
-            offset = 7
-        first = base + timedelta(days=offset)
-        return [first + timedelta(days=7 * i) for i in range(6)]
+        start = base
+        month_feb = 2
+        target_year = base.year + (1 if base.month > month_feb else 0)
+
+        def is_leap(y: int) -> bool:
+            return (y % 4 == 0) and ((y % 100 != 0) or (y % 400 == 0))
+
+        feb_last_day = 29 if is_leap(target_year) else 28
+        end = date(target_year, 2, feb_last_day)
+        total_days = (end - start).days + 1
+        return [start + timedelta(days=i) for i in range(total_days)]
 
     @staticmethod
     def get_strikes(symbol: str, expiry: date) -> list[float]:

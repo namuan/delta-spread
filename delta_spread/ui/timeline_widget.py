@@ -7,6 +7,8 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
+    QScroller,
     QVBoxLayout,
     QWidget,
 )
@@ -15,7 +17,7 @@ from .styles import (
     DAY_BTN_SELECTED_STYLE,
     DAY_BTN_STYLE,
     HLINE_STYLE,
-    MONTH_LABEL_STYLE,
+    MONTH_BAR_STYLE,
     TIMELINE_FRAME_STYLE,
 )
 
@@ -38,17 +40,43 @@ class TimelineWidget(QWidget):
         self.frame_layout = QVBoxLayout(self.frame)
         self.frame_layout.setContentsMargins(0, 0, 0, 0)
         self.frame_layout.setSpacing(0)
+
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.scroll_area.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        vp = self.scroll_area.viewport()
+        if vp is not None:
+            QScroller.grabGesture(
+                vp, QScroller.ScrollerGestureType.LeftMouseButtonGesture
+            )
+
+        self.scroll_content = QWidget()
+        self.scroll_layout = QVBoxLayout(self.scroll_content)
+        self.scroll_layout.setContentsMargins(0, 0, 0, 0)
+        self.scroll_layout.setSpacing(0)
+
         self.month_layout = QHBoxLayout()
         self.month_layout.setContentsMargins(10, 2, 10, 2)
-        self.frame_layout.addLayout(self.month_layout)
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet(HLINE_STYLE)
-        self.frame_layout.addWidget(line)
+        self.scroll_layout.addLayout(self.month_layout)
+
+        self.line = QFrame()
+        self.line.setFrameShape(QFrame.Shape.HLine)
+        self.line.setStyleSheet(HLINE_STYLE)
+        self.scroll_layout.addWidget(self.line)
+
         self.days_layout = QHBoxLayout()
         self.days_layout.setContentsMargins(5, 2, 5, 2)
         self.days_layout.setSpacing(15)
-        self.frame_layout.addLayout(self.days_layout)
+        self.scroll_layout.addLayout(self.days_layout)
+
+        self.scroll_area.setWidget(self.scroll_content)
+        self.frame_layout.addWidget(self.scroll_area)
         self._root_layout.addWidget(self.frame)
 
     def set_expiries(self, expiries: list[date]) -> None:
@@ -62,21 +90,24 @@ class TimelineWidget(QWidget):
     def _render(self) -> None:
         self._clear_layout(self.month_layout)
         self._clear_layout(self.days_layout)
-        months: list[str] = []
-        for d in self.expiries:
-            m = d.strftime("%b")
-            if m not in months:
-                months.append(m)
-        for m in months:
-            lbl = QLabel(m)
-            lbl.setStyleSheet(MONTH_LABEL_STYLE)
-            self.month_layout.addWidget(lbl)
-            self.month_layout.addStretch()
+        self.month_layout.setSpacing(self.days_layout.spacing())
+        segments = self._compute_month_segments()
+        day_w = 24
+        for text, count in segments:
+            seg = QLabel(text)
+            seg.setStyleSheet(MONTH_BAR_STYLE)
+            seg.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            spacing = max(self.days_layout.spacing(), 0)
+            width = count * day_w + max(count - 1, 0) * spacing
+            seg.setMinimumWidth(width)
+            seg.setFixedHeight(22)
+            self.month_layout.addWidget(seg)
         self.expiry_buttons = {}
         for d in self.expiries:
             btn = QPushButton(d.strftime("%d"))
             btn.setStyleSheet(DAY_BTN_STYLE)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setFixedWidth(24)
             connect_btn: TCallable[..., object] = cast(
                 "TCallable[..., object]", btn.clicked.connect
             )
@@ -105,3 +136,28 @@ class TimelineWidget(QWidget):
             child = item.layout()
             if child is not None:
                 TimelineWidget._clear_layout(child)  # type: ignore[arg-type]
+
+    def _compute_month_segments(self) -> list[tuple[str, int]]:
+        exps = self.expiries
+        if not exps:
+            return []
+        base_year = exps[0].year
+        segments: list[tuple[str, int]] = []
+        current = exps[0]
+        count = 0
+        for d in exps:
+            same = d.month == current.month and d.year == current.year
+            if same:
+                count += 1
+                continue
+            label = current.strftime("%b")
+            if current.year != base_year:
+                label = f"{label} '{current.strftime("%y")}"
+            segments.append((label, count))
+            current = d
+            count = 1
+        label = current.strftime("%b")
+        if current.year != base_year:
+            label = f"{label} '{current.strftime("%y")}"
+        segments.append((label, count))
+        return segments

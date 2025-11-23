@@ -161,13 +161,19 @@ class MainWindow(QMainWindow):
 
     def load_expiries(self) -> None:
         self.expiries = list(self.data_service.get_expiries())
-        self.update_exp_label()
+        self.selected_expiry = None
         self.render_timeline()
 
     def update_exp_label(self) -> None:
         today = date.today()
-        parts = [f"{(d - today).days}d" for d in self.expiries]
-        self.exp_label.setText(f"EXPIRATIONS: <b>{", ".join(parts)}</b>")
+        if self.selected_expiry is not None:
+            days = (self.selected_expiry - today).days
+            self.exp_label.setText(f"EXPIRATIONS: <b>{days}d</b>")
+        elif self.expiries:
+            days = (self.expiries[0] - today).days
+            self.exp_label.setText(f"EXPIRATIONS: <b>{days}d</b>")
+        else:
+            self.exp_label.setText("EXPIRATIONS:")
 
     def render_timeline(self) -> None:
         self.timeline.set_expiries(self.expiries)
@@ -175,6 +181,7 @@ class MainWindow(QMainWindow):
     def on_expiry_selected(self, d: date) -> None:
         self.selected_expiry = d
         self.timeline.select_expiry(d)
+        self.update_exp_label()
         self.load_strikes_for_expiry()
 
     @staticmethod

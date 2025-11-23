@@ -31,6 +31,10 @@ BUTTON_PRIMARY_STYLE = f"""
 TIMELINE_FRAME_STYLE = f"background-color: {COLOR_GRAY_100}; border-radius: 3px;"
 HLINE_STYLE = f"color: {COLOR_GRAY_400};"
 MONTH_LABEL_STYLE = f"color: {COLOR_GRAY_900}; font-weight: bold; font-size: 12px;"
+MONTH_BAR_STYLE = (
+    f"background: {COLOR_GRAY_200}; color: {COLOR_GRAY_900}; border-radius: 6px;"
+    " padding: 2px 8px; font-weight: bold; font-size: 12px;"
+)
 
 SYMBOL_INPUT_STYLE = f"border: 1px solid {COLOR_GRAY_300}; border-radius: 3px; padding: 3px; font-weight: bold;"
 PRICE_LABEL_STYLE = "font-size: 16px; font-weight: bold;"
