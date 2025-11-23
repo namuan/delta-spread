@@ -5,6 +5,7 @@ from PyQt6.QtCore import QPoint, QPointF, QRect, Qt
 from PyQt6.QtGui import (
     QColor,
     QFont,
+    QFontDatabase,
     QLinearGradient,
     QPainter,
     QPainterPath,
@@ -305,9 +306,7 @@ class MainWindow(QMainWindow):
         self.main_layout.setContentsMargins(10, 10, 10, 10)
 
         # Background color
-        self.setStyleSheet(
-            "background-color: #FFFFFF; color: #333333; font-family: 'Segoe UI', Arial;"
-        )
+        self.setStyleSheet("background-color: #FFFFFF; color: #333333;")
 
         self.setup_instrument_info()
         self.setup_timeline()
@@ -717,9 +716,12 @@ class MainWindow(QMainWindow):
 if __name__ == "__main__":
     app = QApplication(sys.argv)
 
-    # Font Setup to look cleaner
-    font = QFont("Segoe UI", 9)
-    app.setFont(font)
+    families = QFontDatabase.families()
+    candidates = ["Segoe UI", "Helvetica Neue", "Arial", "Noto Sans", "DejaVu Sans"]
+    for family in candidates:
+        if family in families:
+            app.setFont(QFont(family, 9))
+            break
 
     window = MainWindow()
     window.show()
