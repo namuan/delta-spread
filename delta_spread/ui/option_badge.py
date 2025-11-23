@@ -1,3 +1,5 @@
+from typing import override
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPaintEvent
 from PyQt6.QtWidgets import QWidget
@@ -11,7 +13,8 @@ class OptionBadge(QWidget):
         self.is_call = is_call
         self.setFixedSize(50, 25)
 
-    def paintEvent(self, _event: QPaintEvent) -> None:
+    @override
+    def paintEvent(self, a0: QPaintEvent | None) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         path = QPainterPath()

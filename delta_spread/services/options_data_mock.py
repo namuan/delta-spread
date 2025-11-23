@@ -6,6 +6,7 @@ import hashlib
 
 class MockOptionsDataService:
     def __init__(self, today: date | None = None) -> None:
+        super().__init__()
         self._today = today or date.today()
 
     def get_expiries(self) -> list[date]:

@@ -1,3 +1,5 @@
+from typing import override
+
 from PyQt6.QtCore import QRect, Qt
 from PyQt6.QtGui import QColor, QFont, QPainter, QPaintEvent
 from PyQt6.QtWidgets import QWidget
@@ -12,7 +14,8 @@ class StrikeRuler(QWidget):
         self._strikes = strikes
         self.update()
 
-    def paintEvent(self, _event: QPaintEvent) -> None:
+    @override
+    def paintEvent(self, a0: QPaintEvent | None) -> None:
         p = QPainter(self)
         w = self.width()
         h = self.height()

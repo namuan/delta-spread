@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from PyQt6.QtCore import QPoint, Qt
 from PyQt6.QtWidgets import (
@@ -47,6 +47,12 @@ from .styles import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable as TCallable
+
+    from PyQt6.QtWidgets import (
+        QLayout,
+    )
+
     from ..services.options_data import OptionsDataService
 
 
@@ -59,6 +65,7 @@ class MainWindow(QMainWindow):
         self.expiries: list[date] = []
         self.selected_expiry: date | None = None
         self.strikes: list[float] = []
+        self.expiry_buttons: dict[date, QPushButton] = {}
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         self.main_layout = QVBoxLayout(central_widget)
@@ -79,8 +86,14 @@ class MainWindow(QMainWindow):
         self.symbol_input = QLineEdit("SPX")
         self.symbol_input.setFixedWidth(60)
         self.symbol_input.setStyleSheet(SYMBOL_INPUT_STYLE)
-        self.symbol_input.returnPressed.connect(self.on_symbol_changed)
-        self.symbol_input.editingFinished.connect(self.on_symbol_changed)
+        connect_return: TCallable[..., object] = cast(
+            "TCallable[..., object]", self.symbol_input.returnPressed.connect
+        )
+        connect_return(self.on_symbol_changed)
+        connect_edit: TCallable[..., object] = cast(
+            "TCallable[..., object]", self.symbol_input.editingFinished.connect
+        )
+        connect_edit(self.on_symbol_changed)
         price_label = QLabel("6,602.99")
         price_label.setStyleSheet(PRICE_LABEL_STYLE)
         change_label = QLabel("+0.98%\n+64.23")
@@ -106,7 +119,10 @@ class MainWindow(QMainWindow):
             btn.setStyleSheet(BUTTON_PRIMARY_STYLE)
             info_layout.addWidget(btn)
         self.add_menu = build_add_menu(self, self.on_add_option)
-        self.btn_add.clicked.connect(self.show_add_menu)
+        connect_add: TCallable[..., object] = cast(
+            "TCallable[..., object]", self.btn_add.clicked.connect
+        )
+        connect_add(self.show_add_menu)
         self.main_layout.addLayout(info_layout)
         self.exp_label = QLabel("EXPIRATIONS:")
         self.exp_label.setStyleSheet(EXP_LABEL_STYLE)
@@ -150,7 +166,7 @@ class MainWindow(QMainWindow):
     def render_timeline(self) -> None:
         self._clear_layout(self.month_layout)
         self._clear_layout(self.days_layout)
-        months = []
+        months: list[str] = []
         for d in self.expiries:
             m = d.strftime("%b")
             if m not in months:
@@ -160,12 +176,15 @@ class MainWindow(QMainWindow):
             lbl.setStyleSheet(MONTH_LABEL_STYLE)
             self.month_layout.addWidget(lbl)
             self.month_layout.addStretch()
-        self.expiry_buttons: dict[date, QPushButton] = {}
+        self.expiry_buttons = {}
         for d in self.expiries:
             btn = QPushButton(d.strftime("%d"))
             btn.setStyleSheet(DAY_BTN_STYLE)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.clicked.connect(lambda _=False, dd=d: self.on_expiry_selected(dd))
+            connect_btn: TCallable[..., object] = cast(
+                "TCallable[..., object]", btn.clicked.connect
+            )
+            connect_btn(lambda _=False, dd=d: self.on_expiry_selected(dd))
             self.days_layout.addWidget(btn)
             self.expiry_buttons[d] = btn
         self.days_layout.addStretch()
@@ -182,9 +201,11 @@ class MainWindow(QMainWindow):
         self.load_strikes_for_expiry()
 
     @staticmethod
-    def _clear_layout(layout: QHBoxLayout | QVBoxLayout) -> None:
+    def _clear_layout(layout: QLayout) -> None:
         while layout.count():
             item = layout.takeAt(0)
+            if item is None:
+                continue
             w = item.widget()
             if w is not None:
                 w.deleteLater()
@@ -277,7 +298,7 @@ class MainWindow(QMainWindow):
     def show_add_menu(self) -> None:
         p = self.btn_add.mapToGlobal(self.btn_add.rect().bottomLeft())
         p = QPoint(p.x() + 8, p.y() + 4)
-        self.add_menu.exec(p)
+        self.add_menu.popup(p)
 
     def on_add_option(self, key: str) -> None:
         pass

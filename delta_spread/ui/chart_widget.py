@@ -1,3 +1,5 @@
+from typing import override
+
 from PyQt6.QtCore import QPointF, QRect, Qt
 from PyQt6.QtGui import (
     QColor,
@@ -18,7 +20,8 @@ class ChartWidget(QWidget):
         self.setMinimumHeight(350)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-    def paintEvent(self, _event: QPaintEvent) -> None:
+    @override
+    def paintEvent(self, a0: QPaintEvent | None) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         self._draw_background_and_grid(painter)

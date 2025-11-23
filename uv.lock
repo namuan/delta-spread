@@ -172,7 +172,7 @@ dependencies = [
     { name = "typing-extensions" },
 ]
 
-[package.optional-dependencies]
+[package.dev-dependencies]
 dev = [
     { name = "basedpyright" },
     { name = "gitingest" },
@@ -180,34 +180,27 @@ dev = [
     { name = "radon" },
     { name = "ruff" },
     { name = "skylos" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "ruff" },
     { name = "xenon" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "basedpyright", marker = "extra == 'dev'", specifier = ">=1.31.7" },
-    { name = "gitingest", marker = "extra == 'dev'" },
-    { name = "poethepoet", marker = "extra == 'dev'" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pyqt6", specifier = ">=6.10.0" },
     { name = "python-dotenv" },
-    { name = "radon", marker = "extra == 'dev'" },
-    { name = "ruff", marker = "extra == 'dev'" },
-    { name = "skylos", marker = "extra == 'dev'" },
     { name = "types-requests" },
     { name = "typing-extensions", specifier = ">=4.12" },
 ]
-provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "ruff", specifier = ">=0.14.6" },
-    { name = "xenon", specifier = ">=0.9.3" },
+    { name = "basedpyright" },
+    { name = "gitingest" },
+    { name = "poethepoet" },
+    { name = "radon" },
+    { name = "ruff" },
+    { name = "skylos" },
+    { name = "xenon" },
 ]
 
 [[package]]

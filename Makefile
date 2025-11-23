@@ -10,6 +10,10 @@ install: ## Install the virtual environment and install the pre-commit hooks
 check: ## Run code quality tools.
 	@echo "🚀 Checking lock file consistency with 'pyproject.toml'"
 	@uv lock --locked
+	@echo "🚀 Running ruff check"
+	@uv run ruff check .
+	@echo "🚀 Running basedpyright strict"
+	@uv run basedpyright --level error
 	@echo "🚀 Linting code: Running pre-commit"
 	@uv run pre-commit run -a
 	@mob next

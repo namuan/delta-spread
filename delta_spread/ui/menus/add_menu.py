@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from typing import cast
 
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QMenu, QWidget, QWidgetAction
 
@@ -12,7 +13,7 @@ def build_add_menu(parent: QWidget, on_add_option: Callable[[str], None]) -> QMe
     header_label = QLabel("Options:")
     header_label.setStyleSheet("color: #666; font-weight: bold; padding: 6px 12px;")
     header_action.setDefaultWidget(header_label)
-    menu.addAction(header_action)
+    actions: list[QWidgetAction] = [header_action]
 
     def make_row(left: str, right: str, color: str, key: str) -> QWidgetAction:
         w = QWidget()
@@ -33,11 +34,18 @@ def build_add_menu(parent: QWidget, on_add_option: Callable[[str], None]) -> QMe
             on_add_option(key)
             menu.close()
 
-        w.mouseReleaseEvent = lambda _event: handler()
+        def on_release(a0: object | None) -> None:
+            _ = a0
+            handler()
+
+        w.mouseReleaseEvent = on_release
         return act
 
-    menu.addAction(make_row("Buy", "Call", "#16A34A", "buy_call"))
-    menu.addAction(make_row("Sell", "Call", "#16A34A", "sell_call"))
-    menu.addAction(make_row("Buy", "Put", "#DC2626", "buy_put"))
-    menu.addAction(make_row("Sell", "Put", "#DC2626", "sell_put"))
+    actions.append(make_row("Buy", "Call", "#16A34A", "buy_call"))
+    actions.append(make_row("Sell", "Call", "#16A34A", "sell_call"))
+    actions.append(make_row("Buy", "Put", "#DC2626", "buy_put"))
+    actions.append(make_row("Sell", "Put", "#DC2626", "sell_put"))
+    add_act = cast("Callable[[QWidgetAction | None], None]", menu.addAction)
+    for a in actions:
+        add_act(a)
     return menu
