@@ -18,7 +18,6 @@ from .option_badge import OptionBadge
 from .styles import (
     COLOR_DANGER_RED,
     COLOR_GRAY_200,
-    COLOR_HOVER_BLUE,
     COLOR_TEXT_PRIMARY,
 )
 
@@ -48,6 +47,7 @@ class StrikeRuler(QWidget):
         self._toggle_handler: Callable[[int, OptionType], None] | None = None
         self._remove_handler: Callable[[int], None] | None = None
         self._move_handler: Callable[[int, float], None] | None = None
+        self._preview_handler: Callable[[int, float], None] | None = None
         self._highlight_strike: float | None = None
 
     def set_toggle_handler(
@@ -60,6 +60,9 @@ class StrikeRuler(QWidget):
 
     def set_move_handler(self, handler: Callable[[int, float], None] | None) -> None:
         self._move_handler = handler
+
+    def set_preview_handler(self, handler: Callable[[int, float], None] | None) -> None:
+        self._preview_handler = handler
 
     def set_strikes(self, strikes: list[float]) -> None:
         self._strikes = strikes
@@ -109,6 +112,8 @@ class StrikeRuler(QWidget):
                 w.set_remove_context(b["leg_idx"], self._remove_handler)
             if self._move_handler is not None:
                 w.set_move_context(b["leg_idx"], self._move_handler)
+            if self._preview_handler is not None:
+                w.set_preview_context(b["leg_idx"], self._preview_handler)
             w.setParent(self)
             self._badge_widgets.append(w)
         self._position_badges()
@@ -139,10 +144,6 @@ class StrikeRuler(QWidget):
             tick_h_top = 10
             tick_h_bottom = 10
             color = QColor(COLOR_TEXT_PRIMARY)
-            if self._highlight_strike is not None and s == self._highlight_strike:
-                color = QColor(COLOR_HOVER_BLUE)
-                tick_h_top = 14
-                tick_h_bottom = 14
             p.setPen(color)
             if self._center_strike is not None and s == self._center_strike:
                 p.setBrush(color)
@@ -253,7 +254,7 @@ class StrikeRuler(QWidget):
         )
         return self._strikes[idx]
 
-    def x_for_strike(self, strike: float) -> int:
+    def _x_for_strike(self, strike: float) -> int:
         if not self._strikes:
             return 0
         si = self._nearest_index(strike)

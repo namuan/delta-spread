@@ -55,6 +55,7 @@ class OptionBadge(QWidget):
         self._toggle_handler: Callable[[int, OptionType], None] | None = None
         self._remove_handler: Callable[[int], None] | None = None
         self._move_handler: Callable[[int, float], None] | None = None
+        self._preview_handler: Callable[[int, float], None] | None = None
         self._press_x: int = 0
         self._press_y: int = 0
         self._drag_start_x: int = 0
@@ -87,6 +88,14 @@ class OptionBadge(QWidget):
     ) -> None:
         self._leg_idx = leg_idx
         self._move_handler = handler
+
+    def set_preview_context(
+        self,
+        leg_idx: int,
+        handler: Callable[[int, float], None] | None,
+    ) -> None:
+        self._leg_idx = leg_idx
+        self._preview_handler = handler
 
     @override
     def paintEvent(self, a0: QPaintEvent | None) -> None:
@@ -129,36 +138,36 @@ class OptionBadge(QWidget):
 
     @override
     def mouseMoveEvent(self, a0: QMouseEvent | None) -> None:
-        if a0 is None:
+        if a0 is None or not (a0.buttons() & Qt.MouseButton.LeftButton):
             super().mouseMoveEvent(a0)
             return
-        if a0.buttons() & Qt.MouseButton.LeftButton:
-            parent = self.parentWidget()
-            if parent is None:
-                a0.accept()
-                return
-            gp = a0.globalPosition()
-            parent_pos = parent.mapFromGlobal(gp.toPoint())
-            dx = int(parent_pos.x()) - (self._drag_start_x + self._press_x)
-            if not self._dragging and abs(dx) >= self._drag_threshold:
-                self._dragging = True
-                self.setCursor(Qt.CursorShape.ClosedHandCursor)
-                self.raise_()
-            if self._dragging:
-                new_x = self._drag_start_x + dx
-                max_x = max(0, parent.width() - self.width())
-                new_x = max(new_x, 0)
-                new_x = min(new_x, max_x)
-                self.move(new_x, self._drag_start_y)
-                if hasattr(parent, "strike_at_x") and hasattr(
-                    parent, "set_drag_highlight"
-                ):
-                    centre_x = new_x + (self.width() // 2)
-                    strike = cast("_HasStrikeAtX", parent).strike_at_x(centre_x)
-                    cast("_HasDragHighlight", parent).set_drag_highlight(float(strike))
+        parent = self.parentWidget()
+        if parent is None:
             a0.accept()
             return
-        super().mouseMoveEvent(a0)
+        gp = a0.globalPosition()
+        parent_pos = parent.mapFromGlobal(gp.toPoint())
+        dx = int(parent_pos.x()) - (self._drag_start_x + self._press_x)
+        if not self._dragging and abs(dx) >= self._drag_threshold:
+            self._dragging = True
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            self.raise_()
+        if not self._dragging:
+            a0.accept()
+            return
+        new_x = self._drag_start_x + dx
+        max_x = max(0, parent.width() - self.width())
+        new_x = max(new_x, 0)
+        new_x = min(new_x, max_x)
+        self.move(new_x, self._drag_start_y)
+        if hasattr(parent, "strike_at_x") and hasattr(parent, "set_drag_highlight"):
+            centre_x = new_x + (self.width() // 2)
+            strike = cast("_HasStrikeAtX", parent).strike_at_x(centre_x)
+            cast("_HasDragHighlight", parent).set_drag_highlight(float(strike))
+            if self._preview_handler is not None and self._leg_idx is not None:
+                self._preview_handler(self._leg_idx, float(strike))
+        a0.accept()
+        return
 
     @override
     def mouseReleaseEvent(self, a0: QMouseEvent | None) -> None:

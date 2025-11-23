@@ -39,6 +39,11 @@ class ChartPresenter:
             )
         x_min = min(grid.prices)
         x_max = max(grid.prices)
+        x_min = min(x_min, current_price)
+        x_max = max(x_max, current_price)
+        pad = 0.02 * (x_max - x_min) if x_max > x_min else 0.0
+        x_min -= pad
+        x_max += pad
         y_min = min(grid.pnls)
         y_max = max(grid.pnls)
         return ChartData(

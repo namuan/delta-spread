@@ -217,6 +217,7 @@ class MainWindow(QMainWindow):
         self.strike_ruler.set_toggle_handler(self._on_badge_toggle)
         self.strike_ruler.set_remove_handler(self._on_badge_remove)
         self.strike_ruler.set_move_handler(self._on_badge_move)
+        self.strike_ruler.set_preview_handler(self._on_badge_preview_move)
         layout.addWidget(self.strike_ruler)
         self.main_layout.addWidget(container)
 
@@ -514,8 +515,12 @@ class MainWindow(QMainWindow):
         m = self.aggregator.aggregate(
             self.strategy, spot=self.strategy.underlier.spot, ivs=ivs
         )
+        stats = MainWindow._grid_stats(m)
         self._logger.info(
-            "Updated chart: net=%.2f, be=%s", m.net_debit_credit, m.break_evens
+            "Updated chart: net=%.2f be=%s grid=%s",
+            m.net_debit_credit,
+            m.break_evens,
+            stats,
         )
         self.strike_ruler.set_selected_strikes(strikes_sel)
         self.strike_ruler.set_badges(badges)
@@ -525,6 +530,7 @@ class MainWindow(QMainWindow):
             current_price=self.strategy.underlier.spot,
         )
         self.chart.set_chart_data(cd)
+        self.chart.repaint()
 
     def _on_badge_remove(self, leg_idx: int) -> None:
         if self.strategy is None:
@@ -645,8 +651,70 @@ class MainWindow(QMainWindow):
             legs=legs,
             constraints=self.strategy.constraints,
         )
+        self._logger.info("Move leg: idx=%d strike=%.2f", leg_idx, new_strike)
         self.update_metrics()
         self.update_chart()
+
+    def _on_badge_preview_move(self, leg_idx: int, new_strike: float) -> None:
+        if self.strategy is None:
+            return
+        if leg_idx < 0 or leg_idx >= len(self.strategy.legs):
+            return
+        legs = list(self.strategy.legs)
+        leg = legs[leg_idx]
+        contract = OptionContract(
+            underlier=leg.contract.underlier,
+            expiry=leg.contract.expiry,
+            strike=float(new_strike),
+            type=leg.contract.type,
+        )
+        quote = self.data_service.get_quote(
+            self.strategy.underlier.symbol,
+            leg.contract.expiry,
+            float(new_strike),
+            leg.contract.type,
+        )
+        legs[leg_idx] = OptionLeg(
+            contract=contract,
+            side=leg.side,
+            quantity=leg.quantity,
+            entry_price=quote.mid,
+            notes=leg.notes,
+        )
+        s_preview = Strategy(
+            name=self.strategy.name,
+            underlier=self.strategy.underlier,
+            legs=legs,
+            constraints=self.strategy.constraints,
+        )
+        ivs: dict[tuple[float, OptionType], float] = {}
+        for leg_p in s_preview.legs:
+            q = self.data_service.get_quote(
+                s_preview.underlier.symbol,
+                leg_p.contract.expiry,
+                leg_p.contract.strike,
+                leg_p.contract.type,
+            )
+            ivs[leg_p.contract.strike, leg_p.contract.type] = q.iv
+        m = self.aggregator.aggregate(s_preview, spot=s_preview.underlier.spot, ivs=ivs)
+        strikes_sel = [leg_p.contract.strike for leg_p in s_preview.legs]
+        cd = ChartPresenter.prepare(
+            m,
+            strike_lines=strikes_sel,
+            current_price=self.strategy.underlier.spot,
+        )
+        stats = MainWindow._grid_stats(m)
+        self._logger.info(
+            "Preview chart: leg=%d strike=%.2f grid=%s",
+            leg_idx,
+            new_strike,
+            stats,
+        )
+        if hasattr(self, "strike_ruler"):
+            self.strike_ruler.set_selected_strikes(strikes_sel)
+        if hasattr(self, "chart"):
+            self.chart.set_chart_data(cd)
+        self.chart.repaint()
 
     @staticmethod
     def _build_date_row() -> QHBoxLayout:
@@ -683,6 +751,19 @@ class MainWindow(QMainWindow):
         row.addSpacing(20)
         row.addWidget(iv_widget)
         return row
+
+    @staticmethod
+    def _grid_stats(
+        metrics: StrategyMetrics,
+    ) -> tuple[int, int, float, float, float, float]:
+        grid = metrics.grid
+        prices_n = 0 if grid is None else len(grid.prices)
+        pnls_n = 0 if grid is None else len(grid.pnls)
+        x_min = 0.0 if not (grid and grid.prices) else min(grid.prices)
+        x_max = 0.0 if not (grid and grid.prices) else max(grid.prices)
+        y_min = 0.0 if not (grid and grid.pnls) else min(grid.pnls)
+        y_max = 0.0 if not (grid and grid.pnls) else max(grid.pnls)
+        return prices_n, pnls_n, x_min, x_max, y_min, y_max
 
     @staticmethod
     def _build_markers_layout() -> QHBoxLayout:

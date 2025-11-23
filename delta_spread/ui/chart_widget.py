@@ -1,3 +1,4 @@
+import logging
 from typing import override
 
 from PyQt6.QtCore import QPointF, QRect, Qt
@@ -39,6 +40,17 @@ class ChartWidget(QWidget):
         self._y_max = data.y_max
         self._strike_lines = data.strike_lines
         self._current_price = data.current_price
+        logging.getLogger(__name__).info(
+            "ChartData set: prices=%d pnls=%d x=[%.2f, %.2f] y=[%.2f, %.2f] strikes=%d current=%.2f",
+            len(self._prices),
+            len(self._pnls),
+            self._x_min,
+            self._x_max,
+            self._y_min,
+            self._y_max,
+            len(self._strike_lines),
+            self._current_price,
+        )
         self.update()
 
     @override
@@ -54,22 +66,30 @@ class ChartWidget(QWidget):
         self._draw_legend(painter)
 
     def _draw_background_and_grid(self, painter: QPainter) -> None:
+        self._draw_background(painter)
+        self._draw_grid_y(painter)
+        self._draw_grid_x(painter)
+
+    def _draw_background(self, painter: QPainter) -> None:
+        painter.fillRect(self.rect(), QColor("#F4F7FB"))
+
+    def _draw_grid_y(self, painter: QPainter) -> None:
         w = self.width()
         h = self.height()
         left_m = 50
         bottom_m = 30
         right_m = 20
         top_m = 20
-        graph_w = w - left_m - right_m
         graph_h = h - bottom_m - top_m
-        painter.fillRect(self.rect(), QColor("#F4F7FB"))
         painter.setPen(QPen(QColor("#E0E0E0"), 1, Qt.PenStyle.SolidLine))
         y_steps = 10
+        y_range_threshold = 250.0
         for i in range(y_steps + 1):
             y = top_m + (i * graph_h / y_steps)
             painter.drawLine(left_m, int(y), w - right_m, int(y))
-            val = 6000 - (i * 1000)
-            label = f"${val:,}" if val != 0 else "$0"
+            val = self._y_min + (i * (self._y_max - self._y_min) / y_steps)
+            use_int = abs(self._y_max - self._y_min) >= y_range_threshold
+            label = f"${val:,.0f}" if use_int else f"${val:,.2f}"
             painter.setPen(QColor("#666666"))
             painter.setFont(QFont("Arial", 8))
             painter.drawText(
@@ -78,17 +98,27 @@ class ChartWidget(QWidget):
                 label,
             )
             painter.setPen(QColor("#E0E0E0"))
+
+    def _draw_grid_x(self, painter: QPainter) -> None:
+        w = self.width()
+        h = self.height()
+        left_m = 50
+        bottom_m = 30
+        right_m = 20
+        top_m = 20
+        graph_w = w - left_m - right_m
+        painter.setPen(QPen(QColor("#E0E0E0"), 1, Qt.PenStyle.SolidLine))
         x_steps = 20
         for i in range(x_steps + 1):
             x = left_m + (i * graph_w / x_steps)
             painter.drawLine(int(x), top_m, int(x), h - bottom_m)
             if i % 2 == 0:
-                val = 6380 + (i * 25)
+                val = self._x_min + (i * (self._x_max - self._x_min) / x_steps)
                 painter.setPen(QColor("#666666"))
                 painter.drawText(
-                    QRect(int(x) - 20, h - bottom_m, 40, 20),
+                    QRect(int(x) - 30, h - bottom_m, 60, 20),
                     Qt.AlignmentFlag.AlignCenter,
-                    str(val),
+                    f"{val:,.0f}",
                 )
                 painter.setPen(QColor("#E0E0E0"))
 
@@ -182,11 +212,12 @@ class ChartWidget(QWidget):
         px = float(left_m) + (self._current_price - self._x_min) / (
             self._x_max - self._x_min
         ) * float(graph_w)
+        px_c = max(float(left_m), min(px, float(w - right_m)))
         painter.setPen(QPen(QColor("#2196F3"), 1))
-        painter.drawLine(int(px), top_m, int(px), h - bottom_m)
+        painter.drawLine(int(px_c), top_m, int(px_c), h - bottom_m)
         painter.setPen(QColor("#2196F3"))
         painter.setFont(QFont("Arial", 9, QFont.Weight.Bold))
-        painter.drawText(int(px) + 5, top_m + 20, f"{self._current_price:,.2f}")
+        painter.drawText(int(px_c) + 5, top_m + 20, f"{self._current_price:,.2f}")
 
     def _draw_strike_lines(self, painter: QPainter) -> None:
         w = self.width()
