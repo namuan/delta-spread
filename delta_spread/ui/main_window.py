@@ -28,7 +28,7 @@ from ..domain.models import (
     Underlier,
 )
 from ..services.aggregation import AggregationService
-from ..services.presenter import ChartPresenter, MetricsPresenter
+from ..services.presenter import ChartData, ChartPresenter, MetricsPresenter
 from .chart_widget import ChartWidget
 from .menus.add_menu import build_add_menu
 from .strike_ruler import StrikeRuler
@@ -208,6 +208,7 @@ class MainWindow(QMainWindow):
         self.strike_ruler = StrikeRuler()
         self.strike_ruler.setFixedHeight(100)
         self.strike_ruler.set_toggle_handler(self._on_badge_toggle)
+        self.strike_ruler.set_remove_handler(self._on_badge_remove)
         layout.addWidget(self.strike_ruler)
         self.main_layout.addWidget(container)
 
@@ -450,6 +451,48 @@ class MainWindow(QMainWindow):
             current_price=self.strategy.underlier.spot,
         )
         self.chart.set_chart_data(cd)
+
+    def _on_badge_remove(self, leg_idx: int) -> None:
+        if self.strategy is None:
+            return
+        if leg_idx < 0 or leg_idx >= len(self.strategy.legs):
+            return
+        legs = [leg for i, leg in enumerate(self.strategy.legs) if i != leg_idx]
+        if not legs:
+            self.strategy = None
+            if self.metric_net_lbl:
+                self.metric_net_lbl.setText("$0")
+            if self.metric_max_loss_lbl:
+                self.metric_max_loss_lbl.setText("$0")
+            if self.metric_max_profit_lbl:
+                self.metric_max_profit_lbl.setText("$0")
+            if self.metric_pop_lbl:
+                self.metric_pop_lbl.setText("-")
+            if self.metric_breakevens_lbl:
+                self.metric_breakevens_lbl.setText("-")
+            self.strike_ruler.set_selected_strikes([])
+            self.strike_ruler.set_badges([])
+            self.chart.set_chart_data(
+                ChartData(
+                    prices=[],
+                    pnls=[],
+                    x_min=0.0,
+                    x_max=1.0,
+                    y_min=-1.0,
+                    y_max=1.0,
+                    strike_lines=[],
+                    current_price=0.0,
+                )
+            )
+            return
+        self.strategy = Strategy(
+            name=self.strategy.name,
+            underlier=self.strategy.underlier,
+            legs=legs,
+            constraints=self.strategy.constraints,
+        )
+        self.update_metrics()
+        self.update_chart()
 
     def _on_badge_toggle(self, leg_idx: int, new_type: OptionType) -> None:
         if self.strategy is None:

@@ -45,11 +45,15 @@ class StrikeRuler(QWidget):
         self._current_label: str | None = None
         self._center_strike: float | None = None
         self._toggle_handler: Callable[[int, OptionType], None] | None = None
+        self._remove_handler: Callable[[int], None] | None = None
 
     def set_toggle_handler(
         self, handler: Callable[[int, OptionType], None] | None
     ) -> None:
         self._toggle_handler = handler
+
+    def set_remove_handler(self, handler: Callable[[int], None] | None) -> None:
+        self._remove_handler = handler
 
     def set_strikes(self, strikes: list[float]) -> None:
         self._strikes = strikes
@@ -95,6 +99,8 @@ class StrikeRuler(QWidget):
             w = OptionBadge(b["text"], b["color_bg"], pointer_up=pointer_up)
             if self._toggle_handler is not None:
                 w.set_toggle_context(b["leg_idx"], self._toggle_handler)
+            if self._remove_handler is not None:
+                w.set_remove_context(b["leg_idx"], self._remove_handler)
             w.setParent(self)
             self._badge_widgets.append(w)
         self._position_badges()

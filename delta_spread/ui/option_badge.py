@@ -20,6 +20,7 @@ from .styles import (
     COLOR_DANGER_RED,
     COLOR_GRAY_300,
     COLOR_GRAY_700,
+    COLOR_HOVER_BLUE,
     COLOR_SUCCESS_GREEN,
     COLOR_TEXT_PRIMARY,
 )
@@ -44,6 +45,7 @@ class OptionBadge(QWidget):
         self.pointer_up = pointer_up
         self._leg_idx: int | None = None
         self._toggle_handler: Callable[[int, OptionType], None] | None = None
+        self._remove_handler: Callable[[int], None] | None = None
         self.setFixedSize(50, 25)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
@@ -54,6 +56,14 @@ class OptionBadge(QWidget):
     ) -> None:
         self._leg_idx = leg_idx
         self._toggle_handler = handler
+
+    def set_remove_context(
+        self,
+        leg_idx: int,
+        handler: Callable[[int], None] | None,
+    ) -> None:
+        self._leg_idx = leg_idx
+        self._remove_handler = handler
 
     @override
     def paintEvent(self, a0: QPaintEvent | None) -> None:
@@ -89,6 +99,7 @@ class OptionBadge(QWidget):
                 self,
                 is_call=self.is_call,
                 on_toggle=self._toggle_handler,
+                on_remove=self._remove_handler,
                 leg_idx=self._leg_idx,
             )
             popup.adjustSize()
@@ -114,6 +125,7 @@ class OptionDetailPopup(QDialog):
         *,
         is_call: bool = True,
         on_toggle: Callable[[int, OptionType], None] | None = None,
+        on_remove: Callable[[int], None] | None = None,
         leg_idx: int | None = None,
     ) -> None:
         super().__init__(parent)
@@ -123,6 +135,7 @@ class OptionDetailPopup(QDialog):
         )
         self._is_call = is_call
         self._on_toggle = on_toggle
+        self._on_remove = on_remove
         self._leg_idx = leg_idx
 
         class PopupData(TypedDict):
@@ -264,7 +277,8 @@ class OptionDetailPopup(QDialog):
             b = QPushButton(text)
             b.setFlat(True)
             b.setStyleSheet(
-                "text-align: left; border: none; padding: 4px 0; font-size: 12px;"
+                "QPushButton { text-align: left; border: none; padding: 4px 0; font-size: 12px; }"
+                + f"\nQPushButton:hover {{ background-color: {COLOR_HOVER_BLUE}; }}"
             )
             return b
 
@@ -286,6 +300,10 @@ class OptionDetailPopup(QDialog):
             "TCallable[..., object]", self._btn_switch.clicked.connect
         )
         connect_switch(self._on_switch_type)
+        connect_remove: TCallable[..., object] = cast(
+            "TCallable[..., object]", self._btn_remove.clicked.connect
+        )
+        connect_remove(self._on_remove_clicked)
 
     def _on_switch_type(self) -> None:
         self._is_call = not self._is_call
@@ -302,4 +320,9 @@ class OptionDetailPopup(QDialog):
                 self._leg_idx,
                 OptionType.CALL if self._is_call else OptionType.PUT,
             )
+            self.close()
+
+    def _on_remove_clicked(self) -> None:
+        if self._on_remove is not None and self._leg_idx is not None:
+            self._on_remove(self._leg_idx)
             self.close()
