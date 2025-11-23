@@ -8,6 +8,7 @@ from PyQt6.QtGui import (
     QPainter,
     QPaintEvent,
     QResizeEvent,
+    QWheelEvent,
 )
 from PyQt6.QtWidgets import QWidget
 
@@ -201,6 +202,30 @@ class StrikeRuler(QWidget):
             self._drag_active = False
             self.setCursor(Qt.CursorShape.ArrowCursor)
         super().mouseReleaseEvent(a0)
+
+    @override
+    def wheelEvent(self, a0: QWheelEvent | None) -> None:
+        if a0 is None:
+            return
+        pd = a0.pixelDelta()
+        ad = a0.angleDelta()
+        dx = pd.x() if not pd.isNull() else ad.x()
+        if dx == 0:
+            dx = ad.y()
+        if dx != 0:
+            self._scroll_x = max(
+                0,
+                min(
+                    self._scroll_x - dx,
+                    max(0, self._content_width() - self.width()),
+                ),
+            )
+            self.update()
+            self._position_badges()
+            self._update_center_strike()
+            a0.accept()
+        else:
+            super().wheelEvent(a0)
 
     def _update_center_strike(self) -> None:
         if not self._strikes:
