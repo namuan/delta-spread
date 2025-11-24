@@ -269,8 +269,6 @@ class MainWindow(QMainWindow):
         self.add_menu.popup(p)
 
     def on_add_option(self, key: str) -> None:
-        if self.selected_expiry is None:
-            return
         if not self.strikes:
             return
         symbol = self.symbol_input.text().strip()
@@ -292,8 +290,15 @@ class MainWindow(QMainWindow):
         )
         if spot is None:
             spot = centre
-        underlier = Underlier(
-            symbol=symbol or "SPX", spot=float(spot), multiplier=100, currency="USD"
+        underlier = (
+            self.strategy.underlier
+            if self.strategy is not None
+            else Underlier(
+                symbol=symbol or "SPX",
+                spot=float(spot),
+                multiplier=100,
+                currency="USD",
+            )
         )
         if key == "buy_call":
             side, otype = Side.BUY, OptionType.CALL
@@ -306,14 +311,23 @@ class MainWindow(QMainWindow):
         else:
             return
         strike = strike_chosen
+        expiry_for_leg = (
+            self.strategy.legs[0].contract.expiry
+            if self.strategy is not None
+            and self.strategy.constraints.same_expiry
+            and self.strategy.legs
+            else self.selected_expiry
+        )
+        if expiry_for_leg is None:
+            return
         contract = OptionContract(
             underlier=underlier,
-            expiry=self.selected_expiry,
+            expiry=expiry_for_leg,
             strike=float(strike),
             type=otype,
         )
         quote = self.data_service.get_quote(
-            symbol, self.selected_expiry, float(strike), otype
+            symbol, expiry_for_leg, float(strike), otype
         )
         leg = OptionLeg(contract=contract, side=side, quantity=1, entry_price=quote.mid)
         if self.strategy is None:
