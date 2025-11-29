@@ -98,24 +98,15 @@ class StrikeRuler(QWidget):
         return self._current_price
 
     def set_badges(self, badges: list[BadgeSpec]) -> None:
-        for w in self._badge_widgets:
-            w.setParent(None)
-            w.deleteLater()
-        self._badge_widgets = []
+        self._clear_badges()
         self._badge_specs = list(badges)
+        counts = self._build_badge_counts(badges)
         for b in badges:
-            pointer_up = b["placement"] == "bottom"
-            w = OptionBadge(b["text"], b["color_bg"], pointer_up=pointer_up)
-            if self._toggle_handler is not None:
-                w.set_toggle_context(b["leg_idx"], self._toggle_handler)
-            if self._remove_handler is not None:
-                w.set_remove_context(b["leg_idx"], self._remove_handler)
-            if self._move_handler is not None:
-                w.set_move_context(b["leg_idx"], self._move_handler)
-            if self._preview_handler is not None:
-                w.set_preview_context(b["leg_idx"], self._preview_handler)
+            w = self._create_badge_widget(b)
+            w.set_multi_count(counts[b["strike"], b["placement"]])
             w.setParent(self)
             self._badge_widgets.append(w)
+        self._assign_badge_siblings()
         self._position_badges()
 
     @override
@@ -197,6 +188,43 @@ class StrikeRuler(QWidget):
                 frac = max(0.0, min(1.0, (price - s1) / step))
                 x_base = (idx - 1) * self._pixel_step
         return x_base + frac * self._pixel_step - self._scroll_x
+
+    def _clear_badges(self) -> None:
+        for w in self._badge_widgets:
+            w.setParent(None)
+            w.deleteLater()
+        self._badge_widgets = []
+
+    @staticmethod
+    def _build_badge_counts(badges: list[BadgeSpec]) -> dict[tuple[float, str], int]:
+        counts: dict[tuple[float, str], int] = {}
+        for b in badges:
+            key = (b["strike"], b["placement"])
+            counts[key] = counts.get(key, 0) + 1
+        return counts
+
+    def _create_badge_widget(self, b: BadgeSpec) -> OptionBadge:
+        pointer_up = b["placement"] == "bottom"
+        w = OptionBadge(b["text"], b["color_bg"], pointer_up=pointer_up)
+        if self._toggle_handler is not None:
+            w.set_toggle_context(b["leg_idx"], self._toggle_handler)
+        if self._remove_handler is not None:
+            w.set_remove_context(b["leg_idx"], self._remove_handler)
+        if self._move_handler is not None:
+            w.set_move_context(b["leg_idx"], self._move_handler)
+        if self._preview_handler is not None:
+            w.set_preview_context(b["leg_idx"], self._preview_handler)
+        return w
+
+    def _assign_badge_siblings(self) -> None:
+        badge_groups: dict[tuple[float, str], list[OptionBadge]] = {}
+        for idx, spec in enumerate(self._badge_specs):
+            key = (spec["strike"], spec["placement"])
+            badge_groups.setdefault(key, []).append(self._badge_widgets[idx])
+        for siblings in badge_groups.values():
+            if len(siblings) > 1:
+                for badge in siblings:
+                    badge.set_badge_siblings(siblings)
 
     def _position_badges(self) -> None:
         if not self._badge_widgets:

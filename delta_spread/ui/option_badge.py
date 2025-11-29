@@ -1,11 +1,12 @@
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Protocol, TypedDict, cast, override
 
-from PyQt6.QtCore import QPoint, Qt
+from PyQt6.QtCore import QPoint, QRect, Qt
 from PyQt6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPainterPath, QPaintEvent
 from PyQt6.QtWidgets import (
     QDialog,
     QFrame,
+    QGraphicsDropShadowEffect,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -62,6 +63,8 @@ class OptionBadge(QWidget):
         self._drag_start_y: int = 0
         self._dragging: bool = False
         self._drag_threshold: int = 7
+        self._multi_count: int = 1
+        self._badge_siblings: list[OptionBadge] = []
         self.setFixedSize(50, 25)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
@@ -97,6 +100,10 @@ class OptionBadge(QWidget):
         self._leg_idx = leg_idx
         self._preview_handler = handler
 
+    def set_badge_siblings(self, siblings: list["OptionBadge"]) -> None:
+        """Set the list of all badges at the same strike/placement position."""
+        self._badge_siblings = siblings
+
     @override
     def paintEvent(self, a0: QPaintEvent | None) -> None:
         painter = QPainter(self)
@@ -123,6 +130,20 @@ class OptionBadge(QWidget):
             else self.rect().adjusted(0, 0, 0, -5)
         )
         painter.drawText(tgt_rect, Qt.AlignmentFlag.AlignCenter, self.text)
+
+        if self._multi_count > 1:
+            bubble_d = 14
+            bx = self.width() - bubble_d - 2
+            by = 2 if self.pointer_up else self.height() - bubble_d - 7
+            painter.setBrush(QColor(COLOR_TEXT_PRIMARY))
+            painter.setPen(Qt.GlobalColor.white)
+            painter.drawEllipse(bx, by, bubble_d, bubble_d)
+            painter.setFont(QFont("Arial", 8, QFont.Weight.Bold))
+            painter.drawText(
+                QRect(bx, by, bubble_d, bubble_d),
+                Qt.AlignmentFlag.AlignCenter,
+                str(self._multi_count),
+            )
 
     @override
     def mousePressEvent(self, a0: QMouseEvent | None) -> None:
@@ -191,6 +212,26 @@ class OptionBadge(QWidget):
             self._dragging = False
             a0.accept()
             return
+
+        # If multiple badges at same position, show selection menu
+        if self._multi_count > 1 and len(self._badge_siblings) > 1:
+            menu = BadgeSelectionMenu(self, self._badge_siblings)
+            anchor_local = QPoint(
+                self.width() // 2, 0 if self.pointer_up else self.height()
+            )
+            anchor_global = self.mapToGlobal(anchor_local)
+            x = anchor_global.x() - menu.width() // 2
+            y = (
+                anchor_global.y() - menu.height() - 8
+                if self.pointer_up
+                else anchor_global.y() + 8
+            )
+            menu.move(x, y)
+            menu.show()
+            a0.accept()
+            return
+
+        # Single badge or no siblings - show popup directly
         popup = OptionDetailPopup(
             self,
             is_call=self.is_call,
@@ -216,6 +257,166 @@ class OptionBadge(QWidget):
 
     def is_dragging(self) -> bool:
         return self._dragging
+
+    def set_multi_count(self, count: int) -> None:
+        self._multi_count = max(1, int(count))
+        self.update()
+
+    def leg_index(self) -> int | None:
+        return self._leg_idx
+
+    def toggle_handler(self) -> Callable[[int, OptionType], None] | None:
+        return self._toggle_handler
+
+    def remove_handler(self) -> Callable[[int], None] | None:
+        return self._remove_handler
+
+
+class BadgeSelectionMenu(QDialog):
+    """Menu to select which badge's popup to display when multiple badges are at the same position."""
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        badges: list[OptionBadge] | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._badges = badges or []
+        self._setup_window()
+        self._build_ui()
+
+    def _setup_window(self) -> None:
+        self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        style_dialog = "".join([
+            "QDialog {",
+            "  background: qlineargradient(x1:0, y1:0, x2:0, y2:1, ",
+            f"    stop:0 white, stop:1 {COLOR_GRAY_300});",
+            "  border: 2px solid #d0d0d0;",
+            "  border-radius: 10px;",
+            "}",
+        ])
+        self.setStyleSheet(style_dialog)
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(20)
+        shadow.setColor(QColor(0, 0, 0, 120))
+        shadow.setOffset(0, 4)
+        self.setGraphicsEffect(shadow)
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(2)
+        for idx, badge in enumerate(self._badges):
+            self._add_badge_item(layout, badge, idx)
+        self.adjustSize()
+
+    def _on_item_click(self, b: OptionBadge) -> Callable[[QMouseEvent | None], None]:
+        def mouse_press(event: QMouseEvent | None) -> None:
+            if event is not None and event.button() == Qt.MouseButton.LeftButton:
+                self.close()
+                popup = OptionDetailPopup(
+                    b,
+                    is_call=b.is_call,
+                    on_toggle=b.toggle_handler(),
+                    on_remove=b.remove_handler(),
+                    leg_idx=b.leg_index(),
+                )
+                popup.adjustSize()
+                anchor_local = QPoint(b.width() // 2, 0 if b.pointer_up else b.height())
+                anchor_global = b.mapToGlobal(anchor_local)
+                x = anchor_global.x() - popup.width() // 2
+                y = (
+                    anchor_global.y() - popup.height() - 8
+                    if b.pointer_up
+                    else anchor_global.y() + 8
+                )
+                popup.move(x, y)
+                popup.show()
+
+        return mouse_press
+
+    def _add_badge_item(
+        self, layout: QVBoxLayout, badge: OptionBadge, idx: int
+    ) -> None:
+        clickable = self._build_clickable_container(badge)
+        item_layout = QHBoxLayout(clickable)
+        item_layout.setContentsMargins(12, 6, 8, 6)
+        item_layout.setSpacing(8)
+        # Indicator (color circle)
+        indicator = QLabel("●")
+        indicator_color = COLOR_SUCCESS_GREEN if badge.is_call else COLOR_DANGER_RED
+        indicator.setStyleSheet(
+            "".join([
+                f"color: {indicator_color}; ",
+                "font-size: 14px; ",
+                "font-weight: bold;",
+                "padding-top: 1px;",
+            ])
+        )
+        indicator.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        indicator.setFixedWidth(20)
+        item_layout.addWidget(indicator)
+
+        # Prepare badge text with leg info
+        leg_val = badge.leg_index()
+        leg_text = f"Leg {leg_val}" if leg_val is not None else "Unknown"
+        label_text = f"{badge.text} ({leg_text})"
+        label = QLabel(label_text)
+        label.setStyleSheet(
+            "".join([
+                "font-size: 11px; ",
+                f"color: {COLOR_TEXT_PRIMARY};",
+            ])
+        )
+        # Stretch before label to push it right
+        item_layout.addStretch()
+        item_layout.addWidget(
+            label, alignment=Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight
+        )
+        # Final stretch for tidy layout
+        item_layout.addStretch()
+        clickable.setCursor(Qt.CursorShape.PointingHandCursor)
+        clickable.setStyleSheet(
+            "".join([
+                "QWidget {",
+                "  background: transparent; ",
+                "  border-radius: 6px; ",
+                "  padding: 4px;",
+                "}",
+                "QWidget:hover {",
+                f"  background-color: {COLOR_HOVER_BLUE}; ",
+                "}",
+            ])
+        )
+        layout.addWidget(clickable)
+        if idx < len(self._badges) - 1:
+            divider = QFrame()
+            divider.setFrameShape(QFrame.Shape.HLine)
+            divider.setStyleSheet(
+                "".join([
+                    f"background-color: {COLOR_GRAY_300}; ",
+                    "border: none; ",
+                    "height: 1px; ",
+                    "margin: 0px 8px;",
+                ])
+            )
+            layout.addWidget(divider)
+
+    def _build_clickable_container(self, badge: OptionBadge) -> QWidget:
+        item_container_click = self._on_item_click(badge)
+
+        class _ClickableItem(QWidget):
+            def __init__(self, parent: QWidget | None = None) -> None:
+                super().__init__(parent)
+                self._on_click: Callable[[QMouseEvent | None], None] = (
+                    item_container_click
+                )
+
+            @override
+            def mousePressEvent(self, a0: QMouseEvent | None) -> None:
+                self._on_click(a0)
+
+        return _ClickableItem()
 
 
 class OptionDetailPopup(QDialog):
