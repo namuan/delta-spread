@@ -36,6 +36,7 @@ dev = [
     "xenon",
     "pytest",
     "pytest-cov",
+    "pyinstaller",
 ]
 
 [tool.setuptools.packages.find]

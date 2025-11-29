@@ -1,7 +1,7 @@
 block_cipher = None
 
 a = Analysis([
-             'delta_spread/__main__.py'
+             'entry_point.py'
              ],
              pathex=['.'],
              binaries=None,
@@ -22,7 +22,7 @@ exe = EXE(pyz,
           strip=False,
           upx=True,
           console=False,
-          icon=None)
+          icon='assets/icon.ico')
 
 coll = COLLECT(exe,
                a.binaries,
@@ -34,7 +34,7 @@ coll = COLLECT(exe,
 
 app = BUNDLE(coll,
              name='DeltaSpread.app',
-             icon=None,
+             icon='assets/icon.icns',
              bundle_identifier='com.github.namuan.deltaspread',
              info_plist={
                 'CFBundleName': 'DeltaSpread',

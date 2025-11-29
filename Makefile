@@ -58,6 +58,11 @@ setup: ## One command setup
 	@make install-macosx
 	@echo "Installation completed"
 
+ICON_PNG ?= assets/$(PROJECTNAME)-icon.png
+
+icons: ## Generate ICNS and ICO files from the PNG logo
+	@bash assets/generate-icons.sh $(ICON_PNG)
+
 .PHONY: help
 help:
 	@uv run python -c "import re; \
