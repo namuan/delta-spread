@@ -4,6 +4,8 @@
 
 **Delta Spread** is a modern, local-first desktop application for visualizing and analyzing options trading strategies. Built with Python and PyQt6, it provides an interactive interface to model complex option spreads, visualize payoff diagrams, and monitor real-time Greeks and risk metrics.
 
+![](assets/intro.png)
+
 ## ✨ Features
 
 - **Interactive Strategy Builder**: Easily construct strategies (Verticals, Iron Condors, etc.) by adding individual option legs.
