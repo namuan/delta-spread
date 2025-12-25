@@ -71,7 +71,7 @@ if TYPE_CHECKING:
     from .strike_ruler import BadgeSpec
 
 
-class MainWindow(QMainWindow):
+class MainWindow(QMainWindow):  # noqa: PLR0904
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Delta Spread - Collapse the wave function of uncertainty")
@@ -237,7 +237,16 @@ class MainWindow(QMainWindow):
                 token=self._config.tradier_token,
             )
 
-        self.load_expiries()  # type: ignore[attr-defined]
+        self.load_expiries()
+
+    def load_expiries(self) -> None:
+        """Load available expiries from the data service."""
+        all_expiries = list(self.data_service.get_expiries())
+        # Limit to configured max expiries
+        self.expiries = all_expiries[: self._config.max_expiries]
+        self.selected_expiry = None
+        self.update_stock_quote()
+        self.render_timeline()
 
     def update_stock_quote(self) -> None:
         """Update price and change labels with current stock quote."""
@@ -265,12 +274,6 @@ class MainWindow(QMainWindow):
                     return
             except (ValueError, KeyError, TypeError) as e:
                 self._logger.warning(f"Failed to fetch stock quote: {e}")
-        all_expiries = list(self.data_service.get_expiries())
-        # Limit to configured max expiries
-        self.expiries = all_expiries[: self._config.max_expiries]
-        self.selected_expiry = None
-        self.update_stock_quote()
-        self.render_timeline()
 
     def update_exp_label(self) -> None:
         today = date.today()
