@@ -10,6 +10,7 @@
 
 - **Interactive Strategy Builder**: Easily construct strategies (Verticals, Iron Condors, etc.) by adding individual option legs.
 - **Visual Payoff Diagrams**: Real-time charting of PnL profiles across different underlying prices.
+- **Real-time Data**: Integrated with Tradier API for live options data (optional, uses mock data by default).
 - **Risk Analysis**: Instant calculation of key metrics:
   - **PnL**: Max Profit, Max Loss, Net Debit/Credit.
   - **Breakevens**: Exact price points where the trade turns profitable.
@@ -56,6 +57,16 @@ To start the application in development mode:
 ```bash
 make run
 ```
+
+### Using Real Market Data (Tradier API)
+
+By default, DeltaSpread uses mock data for testing. To use real-time options data:
+
+1. Sign up for a [Tradier account](https://tradier.com) and obtain an API token
+2. Launch DeltaSpread
+3. Go to **DeltaSpread → Preferences** (or press `Cmd+,`)
+4. Enable "Use Real Data" and enter your Tradier API token
+5. Click OK - the app will immediately start using live data
 
 ## 📦 Packaging
 

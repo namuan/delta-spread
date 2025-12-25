@@ -19,7 +19,9 @@ def test_chart_presenter_with_grid() -> None:
     cd = ChartPresenter.prepare(
         metrics, strike_lines=[100.0, 110.0], current_price=105.0
     )
-    assert cd.x_min == 100.0 and cd.x_max == 110.0
+    # ChartPresenter adds 2% padding to x-axis
+    expected_padding = 0.02 * (110.0 - 100.0)  # 0.2
+    assert cd.x_min == 100.0 - expected_padding and cd.x_max == 110.0 + expected_padding
     assert cd.y_min == -10.0 and cd.y_max == 15.0
     assert cd.prices == grid.prices and cd.pnls == grid.pnls
     assert cd.strike_lines == [100.0, 110.0]

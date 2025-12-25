@@ -3,6 +3,7 @@ import logging
 from typing import TYPE_CHECKING, cast
 
 from PyQt6.QtCore import QPoint, Qt
+from PyQt6.QtGui import QAction, QKeySequence
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -10,6 +11,7 @@ from PyQt6.QtWidgets import (
     QLayout,
     QLineEdit,
     QMainWindow,
+    QMenuBar,
     QPushButton,
     QSlider,
     QVBoxLayout,
@@ -19,6 +21,8 @@ from PyQt6.QtWidgets import (
 from mocks.options_data_mock import MockOptionsDataService
 from mocks.pricing_mock import MockPricingService
 
+from ..config import AppConfig
+from ..data.tradier_data import TradierOptionsDataService
 from ..domain.models import (
     OptionContract,
     OptionLeg,
@@ -31,6 +35,7 @@ from ..domain.models import (
 from ..services.aggregation import AggregationService
 from ..services.presenter import ChartData, ChartPresenter, MetricsPresenter
 from .chart_widget import ChartWidget
+from .config_dialog import ConfigDialog
 from .menus.add_menu import build_add_menu
 from .strike_ruler import StrikeRuler
 from .styles import (
@@ -62,7 +67,7 @@ from .timeline_widget import TimelineWidget
 if TYPE_CHECKING:
     from collections.abc import Callable as TCallable
 
-    from ..services.options_data import OptionsDataService
+    from ..data.options_data import OptionsDataService
     from .strike_ruler import BadgeSpec
 
 
@@ -71,8 +76,9 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Delta Spread - Collapse the wave function of uncertainty")
         self.resize(1200, 850)
-        self.data_service: OptionsDataService = MockOptionsDataService()
+        self._config = AppConfig.load()
         self._logger = logging.getLogger(__name__)
+        self.data_service: OptionsDataService = self._init_data_service()
         self.pricing = MockPricingService()
         self.aggregator = AggregationService(self.pricing)
         self.expiries: list[date] = []
@@ -90,12 +96,15 @@ class MainWindow(QMainWindow):
         self.metric_vega_lbl: QLabel | None = None
         self.metric_rho_lbl: QLabel | None = None
         self.expiry_buttons: dict[date, QPushButton] = {}
+        self.price_label: QLabel | None = None
+        self.change_label: QLabel | None = None
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         self.main_layout = QVBoxLayout(central_widget)
         self.main_layout.setSpacing(5)
         self.main_layout.setContentsMargins(10, 10, 10, 10)
         self.setStyleSheet(APP_STYLE)
+        self.setup_menu_bar()
         self.setup_instrument_info()
         self.setup_timeline()
         self.setup_strikes()
@@ -104,10 +113,63 @@ class MainWindow(QMainWindow):
         self.setup_footer_controls()
         self.on_symbol_changed()
 
+    def _init_data_service(self) -> "OptionsDataService":
+        """Initialize the appropriate data service based on configuration.
+
+        Returns:
+            OptionsDataService implementation (Mock or Tradier)
+        """
+        if self._config.use_real_data:
+            if not self._config.tradier_token:
+                self._logger.warning(
+                    "Real data enabled but Tradier token not configured. "
+                    + "Using mock data instead."
+                )
+                return MockOptionsDataService()
+
+            self._logger.info("Using Tradier real data service")
+            return TradierOptionsDataService(
+                symbol=self.symbol_input.text()
+                if hasattr(self, "symbol_input")
+                else "SPX",
+                base_url=self._config.tradier_base_url,
+                token=self._config.tradier_token,
+            )
+
+        self._logger.info("Using mock data service")
+        return MockOptionsDataService()
+
+    def setup_menu_bar(self) -> None:
+        menu_bar = self.menuBar()
+        if menu_bar is None:
+            menu_bar = QMenuBar(self)
+            self.setMenuBar(menu_bar)
+
+        app_menu = menu_bar.addMenu("DeltaSpread")
+        if app_menu is not None:
+            prefs_action = QAction("Preferences…", self)
+            prefs_action.setShortcut(QKeySequence.StandardKey.Preferences)
+            prefs_action.setMenuRole(QAction.MenuRole.PreferencesRole)
+            connect_prefs: TCallable[..., object] = cast(
+                "TCallable[..., object]", prefs_action.triggered.connect
+            )
+            connect_prefs(self.open_preferences)
+            app_menu.addAction(prefs_action)  # type: ignore[call-overload]
+
+    def open_preferences(self) -> None:
+        dialog = ConfigDialog(self._config, self)
+        if dialog.exec():
+            self._config = dialog.get_config()
+            self._logger.info("Configuration updated")
+            # Reinitialize data service with new configuration
+            self.data_service = self._init_data_service()
+            # Refresh data with new service
+            self.on_symbol_changed()
+
     def setup_instrument_info(self) -> None:
         info_layout = QHBoxLayout()
         info_layout.setContentsMargins(0, 10, 0, 10)
-        self.symbol_input = QLineEdit("SPX")
+        self.symbol_input = QLineEdit("SPY")
         self.symbol_input.setFixedWidth(60)
         self.symbol_input.setStyleSheet(SYMBOL_INPUT_STYLE)
         connect_return: TCallable[..., object] = cast(
@@ -118,25 +180,25 @@ class MainWindow(QMainWindow):
             "TCallable[..., object]", self.symbol_input.editingFinished.connect
         )
         connect_edit(self.on_symbol_changed)
-        price_label = QLabel("6,602.99")
-        price_label.setStyleSheet(PRICE_LABEL_STYLE)
-        change_label = QLabel("+0.98%\n+64.23")
-        change_label.setStyleSheet(CHANGE_LABEL_STYLE)
+        self.price_label = QLabel("--")
+        self.price_label.setStyleSheet(PRICE_LABEL_STYLE)
+        self.change_label = QLabel("--\n--")
+        self.change_label.setStyleSheet(CHANGE_LABEL_STYLE)
         realtime_label = QLabel("Real-time")
         realtime_label.setStyleSheet(REALTIME_LABEL_STYLE)
         rt_help = QLabel("?")
         rt_help.setStyleSheet(RT_HELP_STYLE)
         info_layout.addWidget(self.symbol_input)
         info_layout.addSpacing(10)
-        info_layout.addWidget(price_label)
+        info_layout.addWidget(self.price_label)
         info_layout.addSpacing(10)
-        info_layout.addWidget(change_label)
+        info_layout.addWidget(self.change_label)
         info_layout.addSpacing(15)
         info_layout.addWidget(realtime_label)
         info_layout.addWidget(rt_help)
         info_layout.addStretch()
         self.btn_add = QPushButton("Add +")
-        btn_pos = QPushButton("Positions (2)")
+        btn_pos = QPushButton("Positions")
         btn_save = QPushButton("Save Trade")
         btn_hist = QPushButton("Historical Chart")
         for btn in [self.btn_add, btn_pos, btn_save, btn_hist]:
@@ -164,11 +226,50 @@ class MainWindow(QMainWindow):
         symbol = self.symbol_input.text().strip()
         if not symbol:
             return
-        self.load_expiries()
 
-    def load_expiries(self) -> None:
-        self.expiries = list(self.data_service.get_expiries())
+        # Reinitialize Tradier service with new symbol if using real data
+        if self._config.use_real_data and isinstance(
+            self.data_service, TradierOptionsDataService
+        ):
+            self.data_service = TradierOptionsDataService(
+                symbol=symbol,
+                base_url=self._config.tradier_base_url,
+                token=self._config.tradier_token,
+            )
+
+        self.load_expiries()  # type: ignore[attr-defined]
+
+    def update_stock_quote(self) -> None:
+        """Update price and change labels with current stock quote."""
+        if self.price_label is None or self.change_label is None:
+            return
+
+        # Try to get real data from Tradier service
+        if self._config.use_real_data and isinstance(
+            self.data_service, TradierOptionsDataService
+        ):
+            try:
+                quote = self.data_service.get_stock_quote()
+                if quote:
+                    # Format price with commas
+                    price: float = quote["last"]
+                    price_str = f"{price:,.2f}"
+                    self.price_label.setText(price_str)
+
+                    # Format change and percentage
+                    change: float = quote["change"]
+                    change_pct: float = quote["change_percentage"]
+                    sign = "+" if change >= 0 else ""
+                    change_str = f"{sign}{change_pct:.2f}%\n{sign}{change:.2f}"
+                    self.change_label.setText(change_str)
+                    return
+            except (ValueError, KeyError, TypeError) as e:
+                self._logger.warning(f"Failed to fetch stock quote: {e}")
+        all_expiries = list(self.data_service.get_expiries())
+        # Limit to configured max expiries
+        self.expiries = all_expiries[: self._config.max_expiries]
         self.selected_expiry = None
+        self.update_stock_quote()
         self.render_timeline()
 
     def update_exp_label(self) -> None:

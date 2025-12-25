@@ -1,7 +1,13 @@
-from datetime import date
-from typing import Protocol
+"""Contracts for fetching option market data."""
 
-from ..domain.models import OptionQuote, OptionType
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from datetime import date
+
+    from delta_spread.domain.models import OptionQuote, OptionType
 
 
 class OptionsDataService(Protocol):
