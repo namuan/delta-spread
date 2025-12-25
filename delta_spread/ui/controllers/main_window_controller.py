@@ -161,13 +161,16 @@ class MainWindowController:
         self.strikes_panel.set_strikes(self.strikes)
 
         if self.strikes:
-            if symbol.upper() == "SPX":
-                target = 6600.0
-                nearest = min(self.strikes, key=lambda s: abs(s - target))
-                self.strikes_panel.center_on_value(target)
+            # Get current stock price and center on the strike closest to it
+            quote = self.quote_service.get_stock_quote(symbol)
+            if quote is not None:
+                current_price = quote["last"]
+                nearest = min(self.strikes, key=lambda s: abs(s - current_price))
+                self.strikes_panel.center_on_value(current_price)
                 self.strikes_panel.set_selected_strikes([nearest])
-                self.strikes_panel.set_current_price(target, "SPX")
+                self.strikes_panel.set_current_price(current_price, symbol.upper())
             else:
+                # Fallback to middle strike if quote unavailable
                 centre = self.strikes[len(self.strikes) // 2]
                 self.strikes_panel.center_on_value(centre)
                 self.strikes_panel.set_selected_strikes([centre])
