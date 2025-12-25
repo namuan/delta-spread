@@ -71,7 +71,7 @@ if TYPE_CHECKING:
     from .strike_ruler import BadgeSpec
 
 
-class MainWindow(QMainWindow):  # noqa: PLR0904
+class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Delta Spread - Collapse the wave function of uncertainty")
@@ -910,6 +910,3 @@ class MainWindow(QMainWindow):  # noqa: PLR0904
         slider.setValue(30)
         slider.setStyleSheet(RANGE_SLIDER_QSS)
         return slider
-
-    def setup_bottom_tabs(self) -> None:
-        pass
