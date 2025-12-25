@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import logging
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 from dotmap import DotMap  # type: ignore[import-untyped]
 import requests
@@ -264,6 +264,91 @@ class TradierOptionsDataService:
 
         # If not found in current data, return a default quote
         raise ValueError(f"Option not found: {symbol} {expiry} {strike} {type.value}")
+
+    def get_option_details(
+        self, symbol: str, expiry: date, strike: float, type: OptionType
+    ) -> dict[str, object] | None:
+        """Get detailed option data including volume, OI, and greeks.
+
+        Args:
+            symbol: Underlying symbol
+            expiry: Expiration date
+            strike: Strike price
+            type: Option type (CALL or PUT)
+
+        Returns:
+            Dictionary with full option details or None if not found
+        """
+        for raw_quote in self._get_raw_chain(symbol, expiry):  # type: ignore[reportAny]
+            quote_data = cast("dict[str, object]", raw_quote)
+            opt_strike = TradierOptionsDataService._safe_float(
+                quote_data.get("strike", 0)
+            )
+            opt_type = str(quote_data.get("option_type", "")).upper()
+
+            if (
+                abs(opt_strike - strike) < self.STRIKE_TOLERANCE
+                and opt_type == type.value
+            ):
+                return self._parse_option_details(quote_data)
+
+        return None
+
+    @staticmethod
+    def _safe_float(value: object) -> float:
+        try:
+            return float(cast("float | str | int", value))
+        except (ValueError, TypeError):
+            return 0.0
+
+    @staticmethod
+    def _safe_int(value: object) -> int:
+        try:
+            return int(cast("float | str | int", value))
+        except (ValueError, TypeError):
+            return 0
+
+    @staticmethod
+    def _parse_option_details(
+        quote_data: dict[str, object],
+    ) -> dict[str, object] | None:
+        """Parse raw option details from quote data."""
+        try:
+            bid = TradierOptionsDataService._safe_float(quote_data.get("bid"))
+            ask = TradierOptionsDataService._safe_float(quote_data.get("ask"))
+            mid = round((bid + ask) / 2, 2) if bid > 0 and ask > 0 else 0.0
+            volume = TradierOptionsDataService._safe_int(quote_data.get("volume"))
+            oi = TradierOptionsDataService._safe_int(quote_data.get("open_interest"))
+
+            # Get greeks data
+            greeks_data = quote_data.get("greeks")
+            if isinstance(greeks_data, dict):
+                gd = cast("dict[str, object]", greeks_data)
+                iv = TradierOptionsDataService._safe_float(gd.get("mid_iv"))
+                delta = TradierOptionsDataService._safe_float(gd.get("delta"))
+                gamma = TradierOptionsDataService._safe_float(gd.get("gamma"))
+                theta = TradierOptionsDataService._safe_float(gd.get("theta"))
+                vega = TradierOptionsDataService._safe_float(gd.get("vega"))
+                rho = TradierOptionsDataService._safe_float(gd.get("rho"))
+            else:
+                iv = delta = gamma = theta = vega = rho = 0.0
+
+            return {
+                "bid": bid,
+                "ask": ask,
+                "mid": mid,
+                "volume": volume,
+                "oi": oi,
+                "iv": iv,
+                "delta": delta,
+                "gamma": gamma,
+                "theta": theta,
+                "vega": vega,
+                "rho": rho,
+            }
+        except (ValueError, AttributeError, KeyError) as e:
+            logger.warning(f"Failed to parse option details: {e}")
+            return None
 
     @staticmethod
     def _parse_option_quote(option_data: dict[str, object]) -> OptionQuote | None:

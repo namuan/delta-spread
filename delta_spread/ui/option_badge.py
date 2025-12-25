@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, TypedDict, cast, override
 
 from PyQt6.QtCore import QPoint, QRect, Qt, QTimer
@@ -30,6 +31,25 @@ if TYPE_CHECKING:
     from collections.abc import Callable as TCallable
 
 
+class OptionDetailData(TypedDict):
+    """Data structure for option detail popup."""
+
+    symbol: str
+    strike: str
+    expiration: str
+    price: float
+    bid: float
+    ask: float
+    volume: int
+    oi: int
+    iv: str
+    delta: float
+    theta: float
+    gamma: float
+    vega: float
+    rho: float
+
+
 class _HasStrikeAtX(Protocol):
     def strike_at_x(self, x_local: int) -> float: ...
 
@@ -57,6 +77,9 @@ class OptionBadge(QWidget):
         self._remove_handler: Callable[[int], None] | None = None
         self._move_handler: Callable[[int, float], None] | None = None
         self._preview_handler: Callable[[int, float], None] | None = None
+        self._detail_data_provider: Callable[[int], OptionDetailData | None] | None = (
+            None
+        )
         self._press_x: int = 0
         self._press_y: int = 0
         self._drag_start_x: int = 0
@@ -106,6 +129,19 @@ class OptionBadge(QWidget):
     ) -> None:
         self._leg_idx = leg_idx
         self._preview_handler = handler
+
+    def set_detail_data_provider(
+        self,
+        provider: Callable[[int], "OptionDetailData | None"] | None,
+    ) -> None:
+        """Set the provider for fetching real-time option detail data."""
+        self._detail_data_provider = provider
+
+    def get_detail_data(self) -> "OptionDetailData | None":
+        """Get real-time option detail data for this badge."""
+        if self._detail_data_provider is not None and self._leg_idx is not None:
+            return self._detail_data_provider(self._leg_idx)
+        return None
 
     def set_badge_siblings(self, siblings: list["OptionBadge"]) -> None:
         """Set the list of all badges at the same strike/placement position."""
@@ -252,12 +288,16 @@ class OptionBadge(QWidget):
             return
 
         # Single badge or no siblings - show popup directly
+        detail_data = self.get_detail_data()
         popup = OptionDetailPopup(
             self,
             is_call=self.is_call,
-            on_toggle=self._toggle_handler,
-            on_remove=self._remove_handler,
+            handlers=PopupHandlers(
+                on_toggle=self._toggle_handler,
+                on_remove=self._remove_handler,
+            ),
             leg_idx=self._leg_idx,
+            detail_data=detail_data,
         )
         popup.adjustSize()
         anchor_local = QPoint(
@@ -334,12 +374,16 @@ class BadgeSelectionMenu(QDialog):
         def mouse_press(event: QMouseEvent | None) -> None:
             if event is not None and event.button() == Qt.MouseButton.LeftButton:
                 self.close()
+                detail_data = b.get_detail_data()
                 popup = OptionDetailPopup(
                     b,
                     is_call=b.is_call,
-                    on_toggle=b.toggle_handler(),
-                    on_remove=b.remove_handler(),
+                    handlers=PopupHandlers(
+                        on_toggle=b.toggle_handler(),
+                        on_remove=b.remove_handler(),
+                    ),
                     leg_idx=b.leg_index(),
+                    detail_data=detail_data,
                 )
                 popup.adjustSize()
                 anchor_local = QPoint(b.width() // 2, 0 if b.pointer_up else b.height())
@@ -439,15 +483,21 @@ class BadgeSelectionMenu(QDialog):
         return _ClickableItem()
 
 
+@dataclass
+class PopupHandlers:
+    on_toggle: Callable[[int, OptionType], None] | None = None
+    on_remove: Callable[[int], None] | None = None
+
+
 class OptionDetailPopup(QDialog):
     def __init__(
         self,
         parent: QWidget | None = None,
         *,
         is_call: bool = True,
-        on_toggle: Callable[[int, OptionType], None] | None = None,
-        on_remove: Callable[[int], None] | None = None,
+        handlers: PopupHandlers | None = None,
         leg_idx: int | None = None,
+        detail_data: OptionDetailData | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
@@ -455,42 +505,31 @@ class OptionDetailPopup(QDialog):
             f"background: white; border: 1px solid {COLOR_GRAY_300}; border-radius: 6px;"
         )
         self._is_call = is_call
-        self._on_toggle = on_toggle
-        self._on_remove = on_remove
+        self._handlers = handlers or PopupHandlers()
+        self._on_toggle = self._handlers.on_toggle
+        self._on_remove = self._handlers.on_remove
         self._leg_idx = leg_idx
 
-        class PopupData(TypedDict):
-            symbol: str
-            strike: str
-            expiration: str
-            price: float
-            bid: float
-            ask: float
-            volume: int
-            oi: int
-            iv: str
-            delta: float
-            theta: float
-            gamma: float
-            vega: float
-            rho: float
-
-        self._data: PopupData = {
-            "symbol": "SPXW",
-            "strike": "6540C" if self._is_call else "6540P",
-            "expiration": "12/5/25",
-            "price": 150.05,
-            "bid": 149.30,
-            "ask": 150.80,
-            "volume": 39,
-            "oi": 24,
-            "iv": "21.2%",
-            "delta": 0.616,
-            "theta": -4.26,
-            "gamma": 0.0014,
-            "vega": 4.93,
-            "rho": 1.50,
-        }
+        # Use provided real-time data or fallback to defaults
+        if detail_data is not None:
+            self._data: OptionDetailData = detail_data
+        else:
+            self._data = {
+                "symbol": "SPXW",
+                "strike": "6540C" if self._is_call else "6540P",
+                "expiration": "12/5/25",
+                "price": 0.0,
+                "bid": 0.0,
+                "ask": 0.0,
+                "volume": 0,
+                "oi": 0,
+                "iv": "0.0%",
+                "delta": 0.0,
+                "theta": 0.0,
+                "gamma": 0.0,
+                "vega": 0.0,
+                "rho": 0.0,
+            }
         self._root = QVBoxLayout(self)
         self._root.setContentsMargins(10, 10, 10, 10)
         self._root.setSpacing(8)

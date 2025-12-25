@@ -165,3 +165,34 @@ class QuoteService:
         """
         quote = self.get_quote(symbol, expiry, strike, option_type)
         return quote.mid
+
+    def get_option_details(
+        self,
+        symbol: str,
+        expiry: date,
+        strike: float,
+        option_type: OptionType,
+    ) -> dict[str, object] | None:
+        """Get detailed option data including volume, OI, and greeks.
+
+        Args:
+            symbol: Underlying symbol.
+            expiry: Option expiry date.
+            strike: Strike price.
+            option_type: CALL or PUT.
+
+        Returns:
+            Dictionary with full option details or None if not available.
+        """
+        # Import here to avoid circular imports
+        from ..data.tradier_data import TradierOptionsDataService  # noqa: PLC0415
+
+        if isinstance(self._data_service, TradierOptionsDataService):
+            try:
+                return self._data_service.get_option_details(
+                    symbol, expiry, strike, option_type
+                )
+            except (ValueError, KeyError, TypeError) as e:
+                self._logger.warning(f"Failed to fetch option details: {e}")
+                return None
+        return None

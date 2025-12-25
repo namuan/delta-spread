@@ -14,7 +14,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import QWidget
 
 from ..domain.models import OptionType
-from .option_badge import OptionBadge
+from .option_badge import OptionBadge, OptionDetailData
 from .styles import (
     COLOR_DANGER_RED,
     COLOR_GRAY_200,
@@ -48,21 +48,29 @@ class StrikeRuler(QWidget):
         self._remove_handler: Callable[[int], None] | None = None
         self._move_handler: Callable[[int, float], None] | None = None
         self._preview_handler: Callable[[int, float], None] | None = None
+        self._detail_data_provider: Callable[[int], OptionDetailData | None] | None = (
+            None
+        )
         self._highlight_strike: float | None = None
 
-    def set_toggle_handler(
-        self, handler: Callable[[int, OptionType], None] | None
+    def set_interaction_handlers(
+        self,
+        *,
+        on_toggle: Callable[[int, OptionType], None] | None = None,
+        on_remove: Callable[[int], None] | None = None,
+        on_move: Callable[[int, float], None] | None = None,
+        on_preview: Callable[[int, float], None] | None = None,
     ) -> None:
-        self._toggle_handler = handler
+        self._toggle_handler = on_toggle
+        self._remove_handler = on_remove
+        self._move_handler = on_move
+        self._preview_handler = on_preview
 
-    def set_remove_handler(self, handler: Callable[[int], None] | None) -> None:
-        self._remove_handler = handler
-
-    def set_move_handler(self, handler: Callable[[int, float], None] | None) -> None:
-        self._move_handler = handler
-
-    def set_preview_handler(self, handler: Callable[[int, float], None] | None) -> None:
-        self._preview_handler = handler
+    def set_detail_data_provider(
+        self, provider: Callable[[int], OptionDetailData | None] | None
+    ) -> None:
+        """Set the provider for fetching real-time option detail data."""
+        self._detail_data_provider = provider
 
     def set_strikes(self, strikes: list[float]) -> None:
         self._strikes = strikes
@@ -214,6 +222,8 @@ class StrikeRuler(QWidget):
             w.set_move_context(b["leg_idx"], self._move_handler)
         if self._preview_handler is not None:
             w.set_preview_context(b["leg_idx"], self._preview_handler)
+        if self._detail_data_provider is not None:
+            w.set_detail_data_provider(self._detail_data_provider)
         return w
 
     def _assign_badge_siblings(self) -> None:

@@ -9,6 +9,11 @@ class AggregationService:
         super().__init__()
         self._pricing = pricing
 
+    @property
+    def pricing_service(self) -> PricingService:
+        """Get the pricing service."""
+        return self._pricing
+
     def aggregate(
         self,
         strategy: Strategy,

@@ -48,6 +48,7 @@ if TYPE_CHECKING:
     from datetime import date
 
     from ..data.options_data import OptionsDataService
+    from .option_badge import OptionDetailData
 
 
 class MainWindow(QMainWindow):
@@ -210,10 +211,13 @@ class MainWindow(QMainWindow):
         connect_expiry(self._on_expiry_selected)
 
         # Strikes panel handlers
-        self.strikes_panel.set_toggle_handler(self._on_badge_toggle)
-        self.strikes_panel.set_remove_handler(self._on_badge_remove)
-        self.strikes_panel.set_move_handler(self._on_badge_move)
-        self.strikes_panel.set_preview_handler(self._on_badge_preview_move)
+        self.strikes_panel.set_interaction_handlers(
+            on_toggle=self._on_badge_toggle,
+            on_remove=self._on_badge_remove,
+            on_move=self._on_badge_move,
+            on_preview=self._on_badge_preview_move,
+        )
+        self.strikes_panel.set_detail_data_provider(self._get_option_detail_data)
 
     def _open_preferences(self) -> None:
         """Open the preferences dialog."""
@@ -315,3 +319,14 @@ class MainWindow(QMainWindow):
             new_strike: New strike price for preview.
         """
         self._controller.on_badge_preview_move(leg_idx, new_strike)
+
+    def _get_option_detail_data(self, leg_idx: int) -> OptionDetailData | None:
+        """Get real-time option detail data for a leg.
+
+        Args:
+            leg_idx: Index of the leg to get data for.
+
+        Returns:
+            Option detail data or None if not available.
+        """
+        return self._controller.get_option_detail_data(leg_idx)

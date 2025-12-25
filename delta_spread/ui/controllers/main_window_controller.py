@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from ...services.quote_service import QuoteService
     from ...services.strategy_manager import StrategyManager
     from ..chart_widget import ChartWidget
+    from ..option_badge import OptionDetailData
     from ..panels.instrument_info_panel import InstrumentInfoPanel
     from ..panels.metrics_panel import MetricsPanel
     from ..panels.strikes_panel import StrikesPanel
@@ -524,3 +525,102 @@ class MainWindowController:
         if self.expiries:
             return (self.expiries[0] - today).days
         return None
+
+    def get_option_detail_data(self, leg_idx: int) -> OptionDetailData | None:
+        """Get real-time option detail data for a leg.
+
+        Args:
+            leg_idx: Index of the leg to get data for.
+
+        Returns:
+            Option detail data or None if not available.
+        """
+        strategy = self.strategy_manager.strategy
+        if strategy is None:
+            return None
+
+        if leg_idx < 0 or leg_idx >= len(strategy.legs):
+            return None
+
+        if self.instrument_panel is None:
+            return None
+
+        leg = strategy.legs[leg_idx]
+        symbol = self.instrument_panel.get_symbol()
+
+        # Format expiration date
+        exp_str = leg.contract.expiry.strftime("%m/%d/%y")
+
+        # Format strike string with C/P suffix
+        strike_str = (
+            f"{leg.contract.strike:.0f}C"
+            if leg.contract.type is OptionType.CALL
+            else f"{leg.contract.strike:.0f}P"
+        )
+
+        # Try to get detailed option data first (includes volume, OI, and real greeks)
+        details = self.quote_service.get_option_details(
+            symbol,
+            leg.contract.expiry,
+            leg.contract.strike,
+            leg.contract.type,
+        )
+
+        if details is not None:
+            # Use real-time data from Tradier
+            from ..option_badge import OptionDetailData  # noqa: PLC0415
+
+            return OptionDetailData(
+                symbol=symbol.upper(),
+                strike=strike_str,
+                expiration=exp_str,
+                price=float(cast("float | str | int", details.get("mid", 0))),
+                bid=float(cast("float | str | int", details.get("bid", 0))),
+                ask=float(cast("float | str | int", details.get("ask", 0))),
+                volume=int(cast("float | str | int", details.get("volume", 0))),
+                oi=int(cast("float | str | int", details.get("oi", 0))),
+                iv=f"{float(cast("float | str | int", details.get("iv", 0))) * 100:.1f}%",
+                delta=float(cast("float | str | int", details.get("delta", 0))),
+                theta=float(cast("float | str | int", details.get("theta", 0))),
+                gamma=float(cast("float | str | int", details.get("gamma", 0))),
+                vega=float(cast("float | str | int", details.get("vega", 0))),
+                rho=float(cast("float | str | int", details.get("rho", 0))),
+            )
+
+        # Fallback to basic quote and calculated greeks
+        try:
+            quote = self.quote_service.get_quote(
+                symbol,
+                leg.contract.expiry,
+                leg.contract.strike,
+                leg.contract.type,
+            )
+        except (ValueError, KeyError) as e:
+            self._logger.warning(f"Failed to fetch quote for leg {leg_idx}: {e}")
+            return None
+
+        # Calculate greeks using the pricing service
+        iv = quote.iv if quote.iv > 0 else 0.2  # Default IV if not available
+        metrics = self.aggregator.pricing_service.price_and_greeks(
+            leg, strategy.underlier.spot, iv
+        )
+
+        # Import here to avoid circular imports
+        from ..option_badge import OptionDetailData  # noqa: PLC0415
+
+        return OptionDetailData(
+            symbol=symbol.upper(),
+            strike=strike_str,
+            expiration=exp_str,
+            price=quote.mid,
+            bid=quote.bid,
+            ask=quote.ask,
+            volume=0,  # Not available from basic quote
+            oi=0,  # Not available from basic quote
+            iv=f"{quote.iv * 100:.1f}%",
+            delta=metrics.delta,
+            theta=metrics.theta,
+            gamma=metrics.gamma,
+            vega=metrics.vega,
+            rho=0.0,  # Not calculated by current pricing service
+        )

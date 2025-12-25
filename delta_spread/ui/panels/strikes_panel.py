@@ -20,6 +20,7 @@ from ..styles import MONTH_LABEL_STYLE
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from ..option_badge import OptionDetailData
     from ..strike_ruler import BadgeSpec
 
 
@@ -54,37 +55,39 @@ class StrikesPanel(QWidget):
         self.strike_ruler.setFixedHeight(100)
         layout.addWidget(self.strike_ruler)
 
-    def set_toggle_handler(self, handler: Callable[[int, object], None]) -> None:
-        """Set the badge toggle handler.
+    def set_interaction_handlers(
+        self,
+        *,
+        on_toggle: Callable[[int, object], None] | None = None,
+        on_remove: Callable[[int], None] | None = None,
+        on_move: Callable[[int, float], None] | None = None,
+        on_preview: Callable[[int, float], None] | None = None,
+    ) -> None:
+        """Set interaction handlers for the strike ruler.
 
         Args:
-            handler: Callback for badge toggle events.
+            on_toggle: Callback for badge toggle events.
+            on_remove: Callback for badge remove events.
+            on_move: Callback for badge move events.
+            on_preview: Callback for badge preview move events.
         """
-        self.strike_ruler.set_toggle_handler(handler)
+        # wrapper to cast object to OptionType if needed, though handler signature in ruler is specific
+        self.strike_ruler.set_interaction_handlers(
+            on_toggle=on_toggle,
+            on_remove=on_remove,
+            on_move=on_move,
+            on_preview=on_preview,
+        )
 
-    def set_remove_handler(self, handler: Callable[[int], None]) -> None:
-        """Set the badge remove handler.
+    def set_detail_data_provider(
+        self, provider: Callable[[int], OptionDetailData | None]
+    ) -> None:
+        """Set the provider for fetching real-time option detail data.
 
         Args:
-            handler: Callback for badge remove events.
+            provider: Callback that takes leg_idx and returns option detail data.
         """
-        self.strike_ruler.set_remove_handler(handler)
-
-    def set_move_handler(self, handler: Callable[[int, float], None]) -> None:
-        """Set the badge move handler.
-
-        Args:
-            handler: Callback for badge move events.
-        """
-        self.strike_ruler.set_move_handler(handler)
-
-    def set_preview_handler(self, handler: Callable[[int, float], None]) -> None:
-        """Set the badge preview move handler.
-
-        Args:
-            handler: Callback for badge preview move events.
-        """
-        self.strike_ruler.set_preview_handler(handler)
+        self.strike_ruler.set_detail_data_provider(provider)
 
     def set_strikes(self, strikes: list[float]) -> None:
         """Set the available strikes.
