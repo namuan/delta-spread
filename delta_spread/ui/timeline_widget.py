@@ -56,18 +56,9 @@ class TimelineWidget(QWidget):
             )
 
         self.scroll_content = QWidget()
-        self.scroll_layout = QVBoxLayout(self.scroll_content)
-        self.scroll_layout.setContentsMargins(0, 0, 0, 0)
-        self.scroll_layout.setSpacing(0)
-
-        self.month_layout = QHBoxLayout()
-        self.month_layout.setContentsMargins(5, 0, 5, 0)
-        self.scroll_layout.addLayout(self.month_layout)
-
-        self.days_layout = QHBoxLayout()
-        self.days_layout.setContentsMargins(5, 0, 5, 0)
-        self.days_layout.setSpacing(6)
-        self.scroll_layout.addLayout(self.days_layout)
+        self.scroll_layout = QHBoxLayout(self.scroll_content)
+        self.scroll_layout.setContentsMargins(5, 0, 5, 0)
+        self.scroll_layout.setSpacing(12)
 
         self.scroll_area.setWidget(self.scroll_content)
         self.frame_layout.addWidget(self.scroll_area)
@@ -82,37 +73,84 @@ class TimelineWidget(QWidget):
             btn.setStyleSheet(DAY_BTN_SELECTED_STYLE if ed == d else DAY_BTN_STYLE)
 
     def _render(self) -> None:
-        self._clear_layout(self.month_layout)
-        self._clear_layout(self.days_layout)
-        self.month_layout.setSpacing(self.days_layout.spacing())
-        segments = self._compute_month_segments()
-        day_w = 24
-        for text, count in segments:
-            seg = QLabel(text)
-            seg.setStyleSheet(MONTH_BAR_STYLE)
-            seg.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            spacing = max(self.days_layout.spacing(), 0)
-            width = count * day_w + max(count - 1, 0) * spacing
-            seg.setMinimumWidth(width)
-            seg.setFixedHeight(18)
-            self.month_layout.addWidget(seg)
+        self._clear_layout(self.scroll_layout)
         self.expiry_buttons = {}
-        for d in self.expiries:
-            btn = QPushButton(d.strftime("%d"))
-            btn.setStyleSheet(DAY_BTN_STYLE)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setFixedWidth(24)
-            connect_btn: TCallable[..., object] = cast(
-                "TCallable[..., object]", btn.clicked.connect
-            )
-            connect_btn(lambda _=False, dd=d: self._on_day_clicked(dd))
-            self.days_layout.addWidget(btn)
-            self.expiry_buttons[d] = btn
-        self.days_layout.addStretch()
+
+        month_groups = self._group_expiries_by_month()
+
+        # Create a column for each month with header and day buttons below
+        for month_label, days in month_groups:
+            month_container = QWidget()
+            month_vlayout = QVBoxLayout(month_container)
+            month_vlayout.setContentsMargins(0, 0, 0, 0)
+            month_vlayout.setSpacing(4)
+
+            # Month header
+            header = QLabel(month_label)
+            header.setStyleSheet(MONTH_BAR_STYLE)
+            header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            header.setFixedHeight(18)
+            month_vlayout.addWidget(header)
+
+            # Days row for this month
+            days_row = QHBoxLayout()
+            days_row.setContentsMargins(0, 0, 0, 0)
+            days_row.setSpacing(6)
+            for d in days:
+                btn = QPushButton(d.strftime("%d"))
+                btn.setStyleSheet(DAY_BTN_STYLE)
+                btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn.setFixedWidth(24)
+                connect_btn: TCallable[..., object] = cast(
+                    "TCallable[..., object]", btn.clicked.connect
+                )
+                connect_btn(lambda _=False, dd=d: self._on_day_clicked(dd))
+                days_row.addWidget(btn)
+                self.expiry_buttons[d] = btn
+            month_vlayout.addLayout(days_row)
+            self.scroll_layout.addWidget(month_container)
+
+        self.scroll_layout.addStretch()
         if self.expiries:
             first = self.expiries[0]
             self.select_expiry(first)
             self.expiry_selected.emit(first)
+
+    def _group_expiries_by_month(self) -> list[tuple[str, list[date]]]:
+        month_groups: list[tuple[str, list[date]]] = []
+        if not self.expiries:
+            return month_groups
+
+        base_year = self.expiries[0].year
+        current_month: date | None = None
+        current_list: list[date] = []
+
+        for d in self.expiries:
+            if (
+                current_month is None
+                or d.month != current_month.month
+                or d.year != current_month.year
+            ):
+                if current_list and current_month:
+                    label = self._create_month_label(current_month, base_year)
+                    month_groups.append((label, current_list))
+                current_month = d
+                current_list = [d]
+            else:
+                current_list.append(d)
+
+        if current_list and current_month:
+            label = self._create_month_label(current_month, base_year)
+            month_groups.append((label, current_list))
+
+        return month_groups
+
+    @staticmethod
+    def _create_month_label(month_date: date, base_year: int) -> str:
+        label = month_date.strftime("%b")
+        if month_date.year != base_year:
+            label = f"{label} '{month_date.strftime("%y")}"
+        return label
 
     def _on_day_clicked(self, d: date) -> None:
         self.select_expiry(d)
@@ -130,28 +168,3 @@ class TimelineWidget(QWidget):
             child = item.layout()
             if child is not None:
                 TimelineWidget._clear_layout(child)  # type: ignore[arg-type]
-
-    def _compute_month_segments(self) -> list[tuple[str, int]]:
-        exps = self.expiries
-        if not exps:
-            return []
-        base_year = exps[0].year
-        segments: list[tuple[str, int]] = []
-        current = exps[0]
-        count = 0
-        for d in exps:
-            same = d.month == current.month and d.year == current.year
-            if same:
-                count += 1
-                continue
-            label = current.strftime("%b")
-            if current.year != base_year:
-                label = f"{label} '{current.strftime("%y")}"
-            segments.append((label, count))
-            current = d
-            count = 1
-        label = current.strftime("%b")
-        if current.year != base_year:
-            label = f"{label} '{current.strftime("%y")}"
-        segments.append((label, count))
-        return segments
