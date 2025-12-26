@@ -16,7 +16,7 @@ def mock_tradier_service():
     return TradierOptionsDataService(
         symbol="SPY",
         base_url="https://api.tradier.com",
-        token="test-token",  # noqa: S106
+        token="test-token",
     )
 
 

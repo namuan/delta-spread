@@ -152,9 +152,15 @@ max-nested-blocks = 3  # Maximum nested block depth (PLR1702)
 ]
 "tests/**/*.py" = [
     "S101",    # Allow assert in tests
+    "S106",    # Allow dummy tokens/password-like args
     "PLR2004", # Allow magic values in tests
+    "PLR0913", # Allow many arguments in test helpers
+    "PLR6301", # Allow no-self-use in test fakes
     "ANN",     # Don't require annotations in tests
     "FBT",     # Allow boolean args in tests
+    "N802",    # Allow Qt-style method names in test doubles
+    "PLC0415", # Allow local imports for optional deps
+    "PLW0108", # Allow simple lambdas in monkeypatches
 ]
 "delta_spread/domain/models.py" = [
     "TCH003",  # Allow runtime import of 'date' needed by Pydantic
