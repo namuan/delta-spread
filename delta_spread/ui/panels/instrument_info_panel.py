@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QProgressBar,
     QPushButton,
     QWidget,
 )
@@ -20,6 +21,7 @@ from PyQt6.QtWidgets import (
 from ..styles import (
     BUTTON_PRIMARY_STYLE,
     CHANGE_LABEL_STYLE,
+    LOADING_INDICATOR_STYLE,
     PRICE_LABEL_STYLE,
     REALTIME_LABEL_STYLE,
     RT_HELP_STYLE,
@@ -46,7 +48,6 @@ class InstrumentInfoPanel(QWidget):
     add_clicked = pyqtSignal()
     positions_clicked = pyqtSignal()
     save_clicked = pyqtSignal()
-    historical_clicked = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the instrument info panel.
@@ -103,13 +104,23 @@ class InstrumentInfoPanel(QWidget):
         layout.addWidget(rt_help)
         layout.addStretch()
 
+        # Loading indicator (before action buttons to avoid layout shift)
+        self._loading_indicator = QProgressBar()
+        self._loading_indicator.setFixedWidth(60)
+        self._loading_indicator.setFixedHeight(14)
+        self._loading_indicator.setRange(0, 0)  # Indeterminate mode
+        self._loading_indicator.setTextVisible(False)
+        self._loading_indicator.setStyleSheet(LOADING_INDICATOR_STYLE)
+        self._loading_indicator.hide()  # Hidden by default
+        layout.addWidget(self._loading_indicator)
+        layout.addSpacing(8)
+
         # Action buttons
         self.btn_add = QPushButton("Add +")
         self.btn_pos = QPushButton("Positions")
         self.btn_save = QPushButton("Save Trade")
-        self.btn_hist = QPushButton("Historical Chart")
 
-        for btn in [self.btn_add, self.btn_pos, self.btn_save, self.btn_hist]:
+        for btn in [self.btn_add, self.btn_pos, self.btn_save]:
             btn.setStyleSheet(BUTTON_PRIMARY_STYLE)
             layout.addWidget(btn)
 
@@ -128,11 +139,6 @@ class InstrumentInfoPanel(QWidget):
             "TCallable[..., object]", self.btn_save.clicked.connect
         )
         connect_save(self.save_clicked.emit)
-
-        connect_hist: TCallable[..., object] = cast(
-            "TCallable[..., object]", self.btn_hist.clicked.connect
-        )
-        connect_hist(self.historical_clicked.emit)
 
     def _on_symbol_changed(self) -> None:
         """Handle symbol input change."""
@@ -219,3 +225,22 @@ class InstrumentInfoPanel(QWidget):
         sign = "+" if change >= 0 else ""
         change_str = f"{sign}{change_pct:.2f}%\n{sign}{change:.2f}"
         self.change_label.setText(change_str)
+
+    def show_loading(self) -> None:
+        """Show the loading indicator."""
+        self._loading_indicator.show()
+
+    def hide_loading(self) -> None:
+        """Hide the loading indicator."""
+        self._loading_indicator.hide()
+
+    def set_loading(self, *, is_loading: bool) -> None:
+        """Set the loading indicator visibility.
+
+        Args:
+            is_loading: Whether to show the loading indicator.
+        """
+        if is_loading:
+            self._loading_indicator.show()
+        else:
+            self._loading_indicator.hide()

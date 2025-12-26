@@ -87,3 +87,8 @@ RANGE_SLIDER_QSS = f"""
     QSlider::handle:horizontal {{ background: {COLOR_ACCENT_BLUE}; width: 6px; height: 15px; margin: -6px 0; border-radius: 0px; }}
     QSlider::sub-page:horizontal {{ background: {COLOR_ACCENT_BLUE}; }}
     """
+
+LOADING_INDICATOR_STYLE = (
+    f"QProgressBar {{ border: 1px solid {COLOR_GRAY_200}; border-radius: 3px; background: {COLOR_GRAY_100}; }}"
+    + f" QProgressBar::chunk {{ background: {COLOR_GRAY_400}; border-radius: 2px; }}"
+)

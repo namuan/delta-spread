@@ -204,7 +204,8 @@ class MainWindowController:
         """
         self._is_loading = True
         self._logger.debug("Loading started: %s", operation)
-        # Could show loading indicator here
+        if self.instrument_panel is not None:
+            self.instrument_panel.show_loading()
 
     def _on_loading_finished(self, operation: str) -> None:
         """Handle loading finished signal.
@@ -217,8 +218,9 @@ class MainWindowController:
             and not self.async_quote_service.is_loading
         ):
             self._is_loading = False
+            if self.instrument_panel is not None:
+                self.instrument_panel.hide_loading()
         self._logger.debug("Loading finished: %s", operation)
-        # Could hide loading indicator here
 
     @property
     def is_loading(self) -> bool:
