@@ -108,7 +108,10 @@ class TimelineWidget(QWidget):
                 days_row.addWidget(btn)
                 self.expiry_buttons[d] = btn
             month_vlayout.addLayout(days_row)
-            self.scroll_layout.addWidget(month_container)
+            month_vlayout.addStretch()
+            self.scroll_layout.addWidget(
+                month_container, alignment=Qt.AlignmentFlag.AlignTop
+            )
 
         self.scroll_layout.addStretch()
         if self.expiries:
