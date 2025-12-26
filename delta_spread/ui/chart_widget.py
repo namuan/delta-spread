@@ -1,16 +1,14 @@
 import logging
 from typing import override
 
-from PyQt6.QtCore import QPointF, QRect, Qt
+from PyQt6.QtCore import QRect, Qt
 from PyQt6.QtGui import (
     QColor,
     QFont,
-    QLinearGradient,
     QPainter,
     QPainterPath,
     QPaintEvent,
     QPen,
-    QPolygonF,
 )
 from PyQt6.QtWidgets import QSizePolicy, QWidget
 
@@ -130,41 +128,18 @@ class ChartWidget(QWidget):
         right_m = 20
         top_m = 20
         graph_h = h - bottom_m - top_m
-        zero_y = top_m + (6 * graph_h / 10)
-        painter.setPen(QPen(QColor("#000000"), 1))
-        painter.drawLine(left_m, int(zero_y), w - right_m, int(zero_y))
+        # Calculate zero line position based on actual Y-axis range
+        if self._y_max == self._y_min:
+            return  # Can't draw zero line if no range
+        # Only draw if zero is within the visible range
+        if self._y_min <= 0 <= self._y_max:
+            zero_y = top_m + (self._y_max - 0) / (self._y_max - self._y_min) * graph_h
+            painter.setPen(QPen(QColor("#000000"), 1))
+            painter.drawLine(left_m, int(zero_y), w - right_m, int(zero_y))
 
     def _draw_bell_curve(self, painter: QPainter) -> None:
-        w = self.width()
-        h = self.height()
-        left_m = 50
-        bottom_m = 30
-        right_m = 20
-        top_m = 20
-        graph_w = w - left_m - right_m
-        center_x = left_m + (graph_w * 0.55)
-        path_bell = QPainterPath()
-        path_bell.moveTo(left_m + (graph_w * 0.2), h - bottom_m)
-        path_bell.cubicTo(
-            center_x - 100,
-            h - bottom_m,
-            center_x - 50,
-            top_m + 100,
-            center_x,
-            top_m + 100,
-        )
-        path_bell.cubicTo(
-            center_x + 50,
-            top_m + 100,
-            center_x + 100,
-            h - bottom_m,
-            left_m + (graph_w * 0.8),
-            h - bottom_m,
-        )
-        grad = QLinearGradient(center_x, top_m, center_x, h - bottom_m)
-        grad.setColorAt(0, QColor(100, 180, 255, 100))
-        grad.setColorAt(1, QColor(100, 180, 255, 0))
-        painter.fillPath(path_bell, grad)
+        # Bell curve removed - was decorative and not based on actual position data
+        pass
 
     def _draw_profit_loss_curves(self, painter: QPainter) -> None:
         w = self.width()
@@ -244,9 +219,9 @@ class ChartWidget(QWidget):
         legend_y = top_m + 10
         row_h = 18
         items = [
-            ("Sat Nov 22nd (now)", Qt.PenStyle.SolidLine, QColor("#333")),
-            ("Tue Dec 2nd (10d)", Qt.PenStyle.DashLine, QColor("#555")),
-            ("Expiration (14d)", Qt.PenStyle.DotLine, QColor("#777")),
+            ("P&L at Expiration", Qt.PenStyle.SolidLine, QColor("#2E7D32")),
+            ("Current Price", Qt.PenStyle.SolidLine, QColor("#2196F3")),
+            ("Strike Price", Qt.PenStyle.DotLine, QColor("#555")),
         ]
         painter.setFont(QFont("Arial", 8))
         for idx, (text, style, color) in enumerate(items):
@@ -255,15 +230,3 @@ class ChartWidget(QWidget):
             painter.drawLine(legend_x, int(y_pos + 5), legend_x + 20, int(y_pos + 5))
             painter.setPen(QColor("#333"))
             painter.drawText(legend_x + 25, int(y_pos + 10), text)
-        y_pos = legend_y + (3 * row_h)
-        painter.setBrush(QColor(100, 180, 255, 100))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawPolygon(
-            QPolygonF([
-                QPointF(legend_x, y_pos + 10),
-                QPointF(legend_x + 10, y_pos),
-                QPointF(legend_x + 20, y_pos + 10),
-            ]).toPolygon()
-        )
-        painter.setPen(QColor("#333"))
-        painter.drawText(legend_x + 25, int(y_pos + 10), "Probability")
