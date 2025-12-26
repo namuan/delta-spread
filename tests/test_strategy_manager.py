@@ -171,3 +171,43 @@ def test_get_expiry_for_new_leg_respects_constraints() -> None:
     )
     assert mgr.get_expiry_for_new_leg(expiry2) == expiry2
     assert mgr.get_expiry_for_new_leg(None) is None
+
+
+def test_strategy_manager_update_leg_expiry() -> None:
+    """Test updating leg expiry date."""
+    expiry1 = date(2026, 1, 17)
+    expiry2 = date(2026, 2, 21)
+    u = _underlier("SPY")
+    base_leg = _leg(
+        underlier=u,
+        expiry=expiry1,
+        strike=500.0,
+        option_type=OptionType.CALL,
+        side=Side.BUY,
+        entry_price=2.0,
+    )
+    mgr = StrategyManager(Strategy(name="Base", underlier=u, legs=[base_leg]))
+
+    # Test invalid leg index
+    with pytest.raises(ValueError, match="Invalid leg index"):
+        mgr.update_leg_expiry(3, expiry2, 2.5)
+
+    with pytest.raises(ValueError, match="Invalid leg index"):
+        mgr.update_leg_expiry(-1, expiry2, 2.5)
+
+    # Test successful update
+    updated = mgr.update_leg_expiry(0, expiry2, 3.0)
+    assert updated.legs[0].contract.expiry == expiry2
+    assert updated.legs[0].entry_price == 3.0
+    # Ensure other fields are preserved
+    assert updated.legs[0].contract.strike == 500.0
+    assert updated.legs[0].contract.type is OptionType.CALL
+    assert updated.legs[0].side is Side.BUY
+
+
+def test_strategy_manager_update_leg_expiry_no_strategy() -> None:
+    """Test that updating expiry fails when no strategy exists."""
+    mgr = StrategyManager()
+
+    with pytest.raises(ValueError, match="no strategy exists"):
+        mgr.update_leg_expiry(0, date(2026, 2, 21), 2.5)

@@ -314,6 +314,63 @@ class StrategyManager:
         self._strategy = None
         self._logger.info("Strategy reset")
 
+    def update_leg_expiry(
+        self,
+        leg_idx: int,
+        new_expiry: date,
+        new_entry_price: float,
+    ) -> Strategy:
+        """Update the expiry of a single leg.
+
+        Args:
+            leg_idx: Index of the leg to update.
+            new_expiry: New expiry date.
+            new_entry_price: New entry price for the leg at new expiry.
+
+        Returns:
+            The updated strategy.
+
+        Raises:
+            ValueError: If no strategy exists or index is invalid.
+        """
+        if self._strategy is None:
+            raise ValueError("Cannot update leg: no strategy exists")
+
+        if leg_idx < 0 or leg_idx >= len(self._strategy.legs):
+            raise ValueError(f"Invalid leg index: {leg_idx}")
+
+        legs = list(self._strategy.legs)
+        leg = legs[leg_idx]
+
+        contract = OptionContract(
+            underlier=leg.contract.underlier,
+            expiry=new_expiry,
+            strike=leg.contract.strike,
+            type=leg.contract.type,
+        )
+
+        legs[leg_idx] = OptionLeg(
+            contract=contract,
+            side=leg.side,
+            quantity=leg.quantity,
+            entry_price=new_entry_price,
+            notes=leg.notes,
+        )
+
+        self._strategy = Strategy(
+            name=self._strategy.name,
+            underlier=self._strategy.underlier,
+            legs=legs,
+            constraints=self._strategy.constraints,
+        )
+        self._logger.info(
+            "Updated leg %d expiry to %s with price %.2f",
+            leg_idx,
+            new_expiry,
+            new_entry_price,
+        )
+        return self._strategy
+
     def get_expiry_for_new_leg(self, selected_expiry: date | None) -> date | None:
         """Get the appropriate expiry for a new leg.
 

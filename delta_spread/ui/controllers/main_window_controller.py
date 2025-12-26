@@ -70,6 +70,16 @@ class PendingMove:
     option_type: OptionType
 
 
+@dataclass
+class PendingExpiryChange:
+    """Context for a pending async expiry change operation."""
+
+    leg_idx: int
+    new_expiry: date
+    strike: float
+    option_type: OptionType
+
+
 class MainWindowController:
     """Controller for coordinating main window interactions.
 
@@ -124,6 +134,7 @@ class MainWindowController:
         self._pending_add_option: PendingAddOption | None = None
         self._pending_toggle: PendingToggle | None = None
         self._pending_move: PendingMove | None = None
+        self._pending_expiry_changes: list[PendingExpiryChange] = []
 
         # Wire async signals if available
         if self.async_quote_service is not None:
@@ -253,6 +264,9 @@ class MainWindowController:
         if self._complete_pending_move(expiry, strike, option_type, quote):
             return
 
+        # Try to complete pending expiry changes
+        self._complete_pending_expiry_change(expiry, strike, option_type, quote)
+
     def _complete_pending_add(
         self,
         expiry: date,
@@ -378,6 +392,54 @@ class MainWindowController:
             self.update_chart()
         except ValueError as e:
             self._logger.warning("Failed to move leg: %s", e)
+
+        return True
+
+    def _complete_pending_expiry_change(
+        self,
+        expiry: date,
+        strike: float,
+        option_type: OptionType,
+        quote: OptionQuote,
+    ) -> bool:
+        """Complete a pending expiry change operation.
+
+        Returns:
+            True if a pending expiry change was completed, False otherwise.
+        """
+        # Find matching pending expiry change
+        matching_idx: int | None = None
+        for i, pending in enumerate(self._pending_expiry_changes):
+            if (
+                pending.new_expiry == expiry
+                and pending.strike == strike
+                and pending.option_type == option_type
+            ):
+                matching_idx = i
+                break
+
+        if matching_idx is None:
+            return False
+
+        pending = self._pending_expiry_changes.pop(matching_idx)
+
+        try:
+            self.strategy_manager.update_leg_expiry(
+                pending.leg_idx, pending.new_expiry, quote.mid
+            )
+            self._logger.info(
+                "Updated leg %d expiry to %s with price %.2f",
+                pending.leg_idx,
+                pending.new_expiry,
+                quote.mid,
+            )
+
+            # Only update UI if all pending expiry changes are complete
+            if not self._pending_expiry_changes:
+                self.update_metrics()
+                self.update_chart()
+        except ValueError as e:
+            self._logger.warning("Failed to update leg expiry: %s", e)
 
         return True
 
@@ -512,6 +574,80 @@ class MainWindowController:
             self.timeline.select_expiry(expiry)
 
         self.load_strikes_for_expiry()
+
+        # Update existing strategy legs to the new expiry
+        self._update_strategy_legs_expiry(expiry)
+
+    def _update_strategy_legs_expiry(self, new_expiry: date) -> None:
+        """Update all strategy legs to a new expiry date.
+
+        Fetches new prices for each leg at the new expiry.
+
+        Args:
+            new_expiry: The new expiry date for all legs.
+        """
+        strategy = self.strategy_manager.strategy
+        if strategy is None:
+            return
+
+        if self.instrument_panel is None:
+            return
+
+        # Check if expiry actually changed
+        if strategy.legs and strategy.legs[0].contract.expiry == new_expiry:
+            return
+
+        symbol = self.instrument_panel.get_symbol()
+
+        # Clear any existing pending expiry changes
+        self._pending_expiry_changes.clear()
+
+        # Queue up expiry change requests for each leg
+        for leg_idx, leg in enumerate(strategy.legs):
+            pending = PendingExpiryChange(
+                leg_idx=leg_idx,
+                new_expiry=new_expiry,
+                strike=leg.contract.strike,
+                option_type=leg.contract.type,
+            )
+            self._pending_expiry_changes.append(pending)
+
+            # Fetch quote for the leg at new expiry
+            if self.async_quote_service is not None:
+                self.async_quote_service.fetch_quote(
+                    symbol,
+                    new_expiry,
+                    leg.contract.strike,
+                    leg.contract.type,
+                )
+            else:
+                # Fallback to sync
+                try:
+                    quote = self.quote_service.get_quote(
+                        symbol,
+                        new_expiry,
+                        leg.contract.strike,
+                        leg.contract.type,
+                    )
+                    self.strategy_manager.update_leg_expiry(
+                        leg_idx, new_expiry, quote.mid
+                    )
+                    self._logger.info(
+                        "Updated leg %d expiry to %s with price %.2f",
+                        leg_idx,
+                        new_expiry,
+                        quote.mid,
+                    )
+                except (ValueError, KeyError) as e:
+                    self._logger.warning(
+                        "Failed to update leg %d expiry: %s", leg_idx, e
+                    )
+
+        # Clear pending list if sync (already processed)
+        if self.async_quote_service is None:
+            self._pending_expiry_changes.clear()
+            self.update_metrics()
+            self.update_chart()
 
     def load_strikes_for_expiry(self) -> None:
         """Load strikes for the selected expiry.
