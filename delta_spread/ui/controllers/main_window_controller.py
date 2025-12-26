@@ -50,6 +50,26 @@ class PendingAddOption:
     is_new_strategy: bool
 
 
+@dataclass
+class PendingToggle:
+    """Context for a pending async toggle operation."""
+
+    leg_idx: int
+    new_type: OptionType
+    expiry: date
+    strike: float
+
+
+@dataclass
+class PendingMove:
+    """Context for a pending async move operation."""
+
+    leg_idx: int
+    new_strike: float
+    expiry: date
+    option_type: OptionType
+
+
 class MainWindowController:
     """Controller for coordinating main window interactions.
 
@@ -102,6 +122,8 @@ class MainWindowController:
 
         # Pending async operations
         self._pending_add_option: PendingAddOption | None = None
+        self._pending_toggle: PendingToggle | None = None
+        self._pending_move: PendingMove | None = None
 
         # Wire async signals if available
         if self.async_quote_service is not None:
@@ -219,10 +241,33 @@ class MainWindowController:
             option_type: CALL or PUT.
             quote: The option quote.
         """
-        # Complete pending add option if this quote matches
+        # Try to complete pending add option
+        if self._complete_pending_add(expiry, strike, option_type, quote):
+            return
+
+        # Try to complete pending toggle
+        if self._complete_pending_toggle(expiry, strike, option_type, quote):
+            return
+
+        # Try to complete pending move
+        if self._complete_pending_move(expiry, strike, option_type, quote):
+            return
+
+    def _complete_pending_add(
+        self,
+        expiry: date,
+        strike: float,
+        option_type: OptionType,
+        quote: OptionQuote,
+    ) -> bool:
+        """Complete a pending add option operation.
+
+        Returns:
+            True if a pending add was completed, False otherwise.
+        """
         pending = self._pending_add_option
         if pending is None:
-            return
+            return False
 
         contract = pending.contract
         if (
@@ -230,8 +275,7 @@ class MainWindowController:
             or contract.strike != strike
             or contract.type != option_type
         ):
-            # Quote doesn't match pending add - ignore
-            return
+            return False
 
         # Clear pending state
         self._pending_add_option = None
@@ -258,6 +302,84 @@ class MainWindowController:
 
         self.update_metrics()
         self.update_chart()
+        return True
+
+    def _complete_pending_toggle(
+        self,
+        expiry: date,
+        strike: float,
+        option_type: OptionType,
+        quote: OptionQuote,
+    ) -> bool:
+        """Complete a pending toggle operation.
+
+        Returns:
+            True if a pending toggle was completed, False otherwise.
+        """
+        pending = self._pending_toggle
+        if pending is None:
+            return False
+
+        if (
+            pending.expiry != expiry
+            or pending.strike != strike
+            or pending.new_type != option_type
+        ):
+            return False
+
+        # Clear pending state
+        self._pending_toggle = None
+
+        try:
+            self.strategy_manager.update_leg_type(
+                pending.leg_idx, pending.new_type, quote.mid
+            )
+            self.update_metrics()
+            self.update_chart()
+        except ValueError as e:
+            self._logger.warning("Failed to toggle leg type: %s", e)
+
+        return True
+
+    def _complete_pending_move(
+        self,
+        expiry: date,
+        strike: float,
+        option_type: OptionType,
+        quote: OptionQuote,
+    ) -> bool:
+        """Complete a pending move operation.
+
+        Returns:
+            True if a pending move was completed, False otherwise.
+        """
+        pending = self._pending_move
+        if pending is None:
+            return False
+
+        if (
+            pending.expiry != expiry
+            or pending.new_strike != strike
+            or pending.option_type != option_type
+        ):
+            return False
+
+        # Clear pending state
+        self._pending_move = None
+
+        try:
+            self.strategy_manager.update_leg_strike(
+                pending.leg_idx, pending.new_strike, quote.mid
+            )
+            self._logger.info(
+                "Move leg: idx=%d strike=%.2f", pending.leg_idx, pending.new_strike
+            )
+            self.update_metrics()
+            self.update_chart()
+        except ValueError as e:
+            self._logger.warning("Failed to move leg: %s", e)
+
+        return True
 
     def _on_async_error(self, request_id: str, error: Exception) -> None:
         """Handle async API error.
@@ -601,6 +723,20 @@ class MainWindowController:
         symbol = self.instrument_panel.get_symbol()
         leg = strategy.legs[leg_idx]
 
+        # Use async service if available
+        if self.async_quote_service is not None:
+            self._pending_toggle = PendingToggle(
+                leg_idx=leg_idx,
+                new_type=new_type,
+                expiry=leg.contract.expiry,
+                strike=leg.contract.strike,
+            )
+            self.async_quote_service.fetch_quote(
+                symbol, leg.contract.expiry, leg.contract.strike, new_type
+            )
+            return
+
+        # Fallback to sync service
         quote = self.quote_service.get_quote(
             symbol, leg.contract.expiry, leg.contract.strike, new_type
         )
@@ -610,7 +746,7 @@ class MainWindowController:
             self.update_metrics()
             self.update_chart()
         except ValueError as e:
-            self._logger.warning(f"Failed to toggle leg type: {e}")
+            self._logger.warning("Failed to toggle leg type: %s", e)
 
     def on_badge_move(self, leg_idx: int, new_strike: float) -> None:
         """Handle badge move to new strike.
@@ -632,6 +768,20 @@ class MainWindowController:
         symbol = self.instrument_panel.get_symbol()
         leg = strategy.legs[leg_idx]
 
+        # Use async service if available
+        if self.async_quote_service is not None:
+            self._pending_move = PendingMove(
+                leg_idx=leg_idx,
+                new_strike=float(new_strike),
+                expiry=leg.contract.expiry,
+                option_type=leg.contract.type,
+            )
+            self.async_quote_service.fetch_quote(
+                symbol, leg.contract.expiry, float(new_strike), leg.contract.type
+            )
+            return
+
+        # Fallback to sync service
         quote = self.quote_service.get_quote(
             symbol, leg.contract.expiry, float(new_strike), leg.contract.type
         )
@@ -642,10 +792,12 @@ class MainWindowController:
             self.update_metrics()
             self.update_chart()
         except ValueError as e:
-            self._logger.warning(f"Failed to move leg: {e}")
+            self._logger.warning("Failed to move leg: %s", e)
 
     def on_badge_preview_move(self, leg_idx: int, new_strike: float) -> None:
         """Handle badge preview move (drag preview).
+
+        Note: This intentionally uses sync API for immediate feedback during drag.
 
         Args:
             leg_idx: Index of the leg being previewed.
@@ -664,6 +816,7 @@ class MainWindowController:
         symbol = self.instrument_panel.get_symbol()
         leg = strategy.legs[leg_idx]
 
+        # Sync call intentional - preview needs immediate feedback during drag
         quote = self.quote_service.get_quote(
             symbol, leg.contract.expiry, float(new_strike), leg.contract.type
         )
@@ -831,6 +984,9 @@ class MainWindowController:
 
     def get_option_detail_data(self, leg_idx: int) -> OptionDetailData | None:
         """Get real-time option detail data for a leg.
+
+        Note: Uses sync API because caller expects immediate return value for tooltip.
+        Consider refactoring to async with callback if this becomes a performance issue.
 
         Args:
             leg_idx: Index of the leg to get data for.
