@@ -82,11 +82,13 @@ class ChartWidget(QWidget):
         painter.setPen(QPen(QColor("#E0E0E0"), 1, Qt.PenStyle.SolidLine))
         y_steps = 10
         y_range_threshold = 250.0
+        # Use symmetric range around zero for centered zero line
+        y_extent = self._get_symmetric_y_extent()
         for i in range(y_steps + 1):
             y = top_m + (i * graph_h / y_steps)
             painter.drawLine(left_m, int(y), w - right_m, int(y))
-            val = self._y_min + (i * (self._y_max - self._y_min) / y_steps)
-            use_int = abs(self._y_max - self._y_min) >= y_range_threshold
+            val = y_extent - (i * 2 * y_extent / y_steps)
+            use_int = abs(2 * y_extent) >= y_range_threshold
             label = f"${val:,.0f}" if use_int else f"${val:,.2f}"
             painter.setPen(QColor("#666666"))
             painter.setFont(QFont("Arial", 8))
@@ -128,18 +130,18 @@ class ChartWidget(QWidget):
         right_m = 20
         top_m = 20
         graph_h = h - bottom_m - top_m
-        # Calculate zero line position based on actual Y-axis range
-        if self._y_max == self._y_min:
-            return  # Can't draw zero line if no range
-        # Only draw if zero is within the visible range
-        if self._y_min <= 0 <= self._y_max:
-            zero_y = top_m + (self._y_max - 0) / (self._y_max - self._y_min) * graph_h
-            painter.setPen(QPen(QColor("#000000"), 1))
-            painter.drawLine(left_m, int(zero_y), w - right_m, int(zero_y))
+        # Zero line is always in the center
+        zero_y = top_m + graph_h / 2
+        painter.setPen(QPen(QColor("#000000"), 1))
+        painter.drawLine(left_m, int(zero_y), w - right_m, int(zero_y))
 
     def _draw_bell_curve(self, painter: QPainter) -> None:
         # Bell curve removed - was decorative and not based on actual position data
         pass
+
+    def _get_symmetric_y_extent(self) -> float:
+        """Get the symmetric Y extent for centering zero line."""
+        return max(abs(self._y_min), abs(self._y_max), 1.0)
 
     def _draw_profit_loss_curves(self, painter: QPainter) -> None:
         w = self.width()
@@ -160,12 +162,12 @@ class ChartWidget(QWidget):
                 self._x_max - self._x_min
             ) * float(graph_w)
 
+        # Use symmetric range around zero
+        y_extent = self._get_symmetric_y_extent()
+
         def map_y(py: float) -> float:
-            if self._y_max == self._y_min:
-                return float(top_m)
-            return float(top_m) + (self._y_max - py) / (
-                self._y_max - self._y_min
-            ) * float(graph_h)
+            # Map from [-y_extent, y_extent] to [top_m + graph_h, top_m]
+            return float(top_m) + (y_extent - py) / (2 * y_extent) * float(graph_h)
 
         path = QPainterPath()
         path.moveTo(map_x(self._prices[0]), map_y(self._pnls[0]))
@@ -221,7 +223,6 @@ class ChartWidget(QWidget):
         items = [
             ("P&L at Expiration", Qt.PenStyle.SolidLine, QColor("#2E7D32")),
             ("Current Price", Qt.PenStyle.SolidLine, QColor("#2196F3")),
-            ("Strike Price", Qt.PenStyle.DotLine, QColor("#555")),
         ]
         painter.setFont(QFont("Arial", 8))
         for idx, (text, style, color) in enumerate(items):
