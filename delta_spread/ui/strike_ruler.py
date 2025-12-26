@@ -1,4 +1,5 @@
 from collections.abc import Callable
+import logging
 from typing import TypedDict, override
 
 from PyQt6.QtCore import QRect, Qt
@@ -44,6 +45,7 @@ class StrikeRuler(QWidget):
         self._current_price: float | None = None
         self._current_label: str | None = None
         self._center_strike: float | None = None
+        self._pending_center_value: float | None = None
         self._toggle_handler: Callable[[int, OptionType], None] | None = None
         self._remove_handler: Callable[[int], None] | None = None
         self._move_handler: Callable[[int, float], None] | None = None
@@ -73,6 +75,12 @@ class StrikeRuler(QWidget):
         self._detail_data_provider = provider
 
     def set_strikes(self, strikes: list[float]) -> None:
+        logging.getLogger(__name__).info(
+            "set_strikes called: num_strikes=%d, width=%d, pending=%s",
+            len(strikes),
+            self.width(),
+            self._pending_center_value,
+        )
         self._strikes = strikes
         self.update()
         self._update_center_strike()
@@ -83,6 +91,27 @@ class StrikeRuler(QWidget):
         self.update()
 
     def center_on_value(self, value: float) -> None:
+        logger = logging.getLogger(__name__)
+        logger.info(
+            "center_on_value called: value=%.2f, width=%d, num_strikes=%d",
+            value,
+            self.width(),
+            len(self._strikes),
+        )
+        if not self._strikes:
+            logger.info("center_on_value: EARLY RETURN - no strikes")
+            return
+        # Always store the value we want to center on
+        self._pending_center_value = value
+        # If widget hasn't been laid out yet, defer actual centering
+        if self.width() <= 0:
+            logger.info("center_on_value: DEFERRED - width<=0")
+            return
+        self._apply_centering(value)
+
+    def _apply_centering(self, value: float) -> None:
+        """Apply centering calculation for the given value."""
+        logger = logging.getLogger(__name__)
         if not self._strikes:
             return
         idx = self._nearest_index(value)
@@ -90,6 +119,14 @@ class StrikeRuler(QWidget):
         centre_x = self.width() // 2
         self._scroll_x = max(
             0, min(idx * self._pixel_step - centre_x, max(0, content - self.width()))
+        )
+        logger.info(
+            "_apply_centering: value=%.2f, idx=%d, width=%d, centre_x=%d, scroll_x=%d",
+            value,
+            idx,
+            self.width(),
+            centre_x,
+            self._scroll_x,
         )
         self.update()
         self._position_badges()
@@ -266,6 +303,24 @@ class StrikeRuler(QWidget):
 
     @override
     def resizeEvent(self, a0: QResizeEvent | None) -> None:
+        logger = logging.getLogger(__name__)
+        logger.info(
+            "resizeEvent: width=%d, center_value=%s, num_strikes=%d",
+            self.width(),
+            self._pending_center_value,
+            len(self._strikes),
+        )
+        # Recalculate centering if we have a stored center value
+        if (
+            self._pending_center_value is not None
+            and self.width() > 0
+            and self._strikes
+        ):
+            logger.info(
+                "resizeEvent: recalculating centering for value %.2f",
+                self._pending_center_value,
+            )
+            self._apply_centering(self._pending_center_value)
         self._position_badges()
         self._update_center_strike()
         super().resizeEvent(a0)

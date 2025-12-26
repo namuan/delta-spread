@@ -159,6 +159,12 @@ class MainWindowController:
         symbol = self.instrument_panel.get_symbol()
         self.strikes = self.quote_service.get_strikes(symbol, self.selected_expiry)
 
+        self._logger.info(
+            "load_strikes_for_expiry: symbol=%s, num_strikes=%d",
+            symbol,
+            len(self.strikes),
+        )
+
         self.strikes_panel.set_strikes(self.strikes)
 
         if self.strikes:
@@ -167,12 +173,21 @@ class MainWindowController:
             if quote is not None:
                 current_price = quote["last"]
                 nearest = min(self.strikes, key=lambda s: abs(s - current_price))
+                self._logger.info(
+                    "load_strikes_for_expiry: current_price=%.2f, nearest_strike=%.2f, calling center_on_value",
+                    current_price,
+                    nearest,
+                )
                 self.strikes_panel.center_on_value(current_price)
                 self.strikes_panel.set_selected_strikes([nearest])
                 self.strikes_panel.set_current_price(current_price, symbol.upper())
             else:
                 # Fallback to middle strike if quote unavailable
                 centre = self.strikes[len(self.strikes) // 2]
+                self._logger.info(
+                    "load_strikes_for_expiry: NO QUOTE, using middle strike=%.2f",
+                    centre,
+                )
                 self.strikes_panel.center_on_value(centre)
                 self.strikes_panel.set_selected_strikes([centre])
 
