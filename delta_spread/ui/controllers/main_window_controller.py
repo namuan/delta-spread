@@ -22,8 +22,12 @@ from ...services.presenter import ChartData, ChartPresenter, MetricsPresenter
 from ..styles import COLOR_DANGER_RED, COLOR_SUCCESS_GREEN
 
 if TYPE_CHECKING:
+    from collections.abc import Callable as TCallable
+
+    from ...data.tradier_data import StockQuote
     from ...domain.models import StrategyMetrics
     from ...services.aggregation import AggregationService
+    from ...services.async_quote_service import AsyncQuoteService
     from ...services.quote_service import QuoteService
     from ...services.strategy_manager import StrategyManager
     from ..chart_widget import ChartWidget
@@ -41,6 +45,10 @@ class MainWindowController:
     This class coordinates between UI panels and services,
     handling complex workflows like adding options, updating
     metrics, and refreshing charts.
+
+    Supports both synchronous and asynchronous API operations:
+    - When async_quote_service is provided, uses background threads
+    - Falls back to synchronous operations otherwise
     """
 
     def __init__(
@@ -48,18 +56,21 @@ class MainWindowController:
         strategy_manager: StrategyManager,
         quote_service: QuoteService,
         aggregator: AggregationService,
+        async_quote_service: AsyncQuoteService | None = None,
     ) -> None:
         """Initialize the controller.
 
         Args:
             strategy_manager: Service for managing strategy state.
-            quote_service: Service for fetching quotes.
+            quote_service: Service for fetching quotes (sync).
             aggregator: Service for aggregating strategy metrics.
+            async_quote_service: Optional async quote service for background API calls.
         """
         super().__init__()
         self.strategy_manager = strategy_manager
         self.quote_service = quote_service
         self.aggregator = aggregator
+        self.async_quote_service = async_quote_service
         self._logger = logging.getLogger(__name__)
 
         # UI components (set by MainWindow)
@@ -73,6 +84,146 @@ class MainWindowController:
         self.expiries: list[date] = []
         self.selected_expiry: date | None = None
         self.strikes: list[float] = []
+
+        # Loading state
+        self._is_loading = False
+        self._max_expiries = 20
+
+        # Wire async signals if available
+        if self.async_quote_service is not None:
+            self._connect_async_signals()
+
+    def _connect_async_signals(self) -> None:
+        """Connect signals from the async quote service."""
+        if self.async_quote_service is None:
+            return
+
+        # Use cast to work around PyQt6 type stub limitations
+        svc = self.async_quote_service
+        connect_expiries = cast("TCallable[..., object]", svc.expiries_loaded.connect)
+        connect_strikes = cast("TCallable[..., object]", svc.strikes_loaded.connect)
+        connect_stock = cast("TCallable[..., object]", svc.stock_quote_loaded.connect)
+        connect_error = cast("TCallable[..., object]", svc.error_occurred.connect)
+        connect_started = cast("TCallable[..., object]", svc.loading_started.connect)
+        connect_finished = cast("TCallable[..., object]", svc.loading_finished.connect)
+
+        connect_expiries(self._on_expiries_loaded)
+        connect_strikes(self._on_strikes_loaded)
+        connect_stock(self._on_stock_quote_loaded)
+        connect_error(self._on_async_error)
+        connect_started(self._on_loading_started)
+        connect_finished(self._on_loading_finished)
+
+    def _on_expiries_loaded(self, expiries: list[date]) -> None:
+        """Handle expiries loaded from background thread.
+
+        Args:
+            expiries: List of available expiry dates.
+        """
+        self.expiries = expiries[: self._max_expiries]
+        self.selected_expiry = None
+        self.render_timeline()
+
+        # Chain: fetch stock quote after expiries
+        if self.instrument_panel is not None and self.async_quote_service is not None:
+            symbol = self.instrument_panel.get_symbol()
+            self.async_quote_service.fetch_stock_quote(symbol)
+
+    def _on_strikes_loaded(
+        self, symbol: str, expiry: date, strikes: list[float]
+    ) -> None:
+        """Handle strikes loaded from background thread.
+
+        Args:
+            symbol: The symbol these strikes are for.
+            expiry: The expiry these strikes are for.
+            strikes: List of available strike prices.
+        """
+        # Verify this is still the selected expiry
+        if expiry != self.selected_expiry:
+            self._logger.debug(
+                "Ignoring strikes for stale expiry: %s (current: %s)",
+                expiry,
+                self.selected_expiry,
+            )
+            return
+
+        self.strikes = strikes
+
+        self._logger.info(
+            "load_strikes_for_expiry: symbol=%s, num_strikes=%d",
+            symbol,
+            len(self.strikes),
+        )
+
+        if self.strikes_panel is not None:
+            self.strikes_panel.set_strikes(self.strikes)
+
+        if self.strikes and self.async_quote_service is not None:
+            # Center on current price - need to fetch stock quote
+            self.async_quote_service.fetch_stock_quote(symbol)
+
+    def _on_stock_quote_loaded(self, symbol: str, quote: StockQuote | None) -> None:
+        """Handle stock quote loaded from background thread.
+
+        Args:
+            symbol: The symbol this quote is for.
+            quote: The stock quote data or None if unavailable.
+        """
+        if self.instrument_panel is not None:
+            self.instrument_panel.update_quote(quote)
+
+        # If we have strikes loaded, center on the current price
+        if self.strikes and self.strikes_panel is not None and quote is not None:
+            current_price = quote["last"]
+            nearest = min(self.strikes, key=lambda s: abs(s - current_price))
+            self._logger.info(
+                "load_strikes_for_expiry: current_price=%.2f, nearest_strike=%.2f, calling center_on_value",
+                current_price,
+                nearest,
+            )
+            self.strikes_panel.center_on_value(current_price)
+            self.strikes_panel.set_selected_strikes([nearest])
+            self.strikes_panel.set_current_price(current_price, symbol.upper())
+
+    def _on_async_error(self, request_id: str, error: Exception) -> None:
+        """Handle async API error.
+
+        Args:
+            request_id: The request that failed.
+            error: The exception that occurred.
+        """
+        self._logger.error("API error (request=%s): %s", request_id, error)
+        # Could show error to user via status bar or dialog here
+
+    def _on_loading_started(self, operation: str) -> None:
+        """Handle loading started signal.
+
+        Args:
+            operation: The type of operation that started.
+        """
+        self._is_loading = True
+        self._logger.debug("Loading started: %s", operation)
+        # Could show loading indicator here
+
+    def _on_loading_finished(self, operation: str) -> None:
+        """Handle loading finished signal.
+
+        Args:
+            operation: The type of operation that finished.
+        """
+        if (
+            self.async_quote_service is not None
+            and not self.async_quote_service.is_loading
+        ):
+            self._is_loading = False
+        self._logger.debug("Loading finished: %s", operation)
+        # Could hide loading indicator here
+
+    @property
+    def is_loading(self) -> bool:
+        """Check if any async operations are in progress."""
+        return self._is_loading
 
     def set_panels(
         self,
@@ -111,9 +262,19 @@ class MainWindowController:
     def load_expiries(self, max_expiries: int = 20) -> None:
         """Load available expiries from the data service.
 
+        Uses async service if available, otherwise falls back to sync.
+
         Args:
             max_expiries: Maximum number of expiries to load.
         """
+        self._max_expiries = max_expiries
+
+        # Use async service if available
+        if self.async_quote_service is not None:
+            self.async_quote_service.fetch_expiries()
+            return
+
+        # Fallback to sync
         all_expiries = self.quote_service.get_expiries()
         self.expiries = all_expiries[:max_expiries]
         self.selected_expiry = None
@@ -127,6 +288,13 @@ class MainWindowController:
             return
 
         symbol = self.instrument_panel.get_symbol()
+
+        # Use async service if available
+        if self.async_quote_service is not None:
+            self.async_quote_service.fetch_stock_quote(symbol)
+            return
+
+        # Fallback to sync
         quote = self.quote_service.get_stock_quote(symbol)
         self.instrument_panel.update_quote(quote)
 
@@ -149,7 +317,10 @@ class MainWindowController:
         self.load_strikes_for_expiry()
 
     def load_strikes_for_expiry(self) -> None:
-        """Load strikes for the selected expiry."""
+        """Load strikes for the selected expiry.
+
+        Uses async service if available, otherwise falls back to sync.
+        """
         if self.selected_expiry is None:
             return
 
@@ -157,6 +328,13 @@ class MainWindowController:
             return
 
         symbol = self.instrument_panel.get_symbol()
+
+        # Use async service if available
+        if self.async_quote_service is not None:
+            self.async_quote_service.fetch_strikes(symbol, self.selected_expiry)
+            return
+
+        # Fallback to sync
         self.strikes = self.quote_service.get_strikes(symbol, self.selected_expiry)
 
         self._logger.info(

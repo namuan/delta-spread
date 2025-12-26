@@ -26,8 +26,10 @@ from mocks.pricing_mock import MockPricingService
 from ..config import AppConfig
 from ..data.tradier_data import TradierOptionsDataService
 from ..services.aggregation import AggregationService
+from ..services.async_quote_service import AsyncQuoteService
 from ..services.quote_service import QuoteService
 from ..services.strategy_manager import StrategyManager
+from ..services.workers.manager import WorkerManager
 from .chart_widget import ChartWidget
 from .config_dialog import ConfigDialog
 from .controllers.main_window_controller import MainWindowController
@@ -74,11 +76,18 @@ class MainWindow(QMainWindow):
         self._quote_service = QuoteService(self._data_service)
         self._strategy_manager = StrategyManager()
 
-        # Initialize controller
+        # Initialize async services for background API calls
+        self._worker_manager = WorkerManager()
+        self._async_quote_service = AsyncQuoteService(
+            self._data_service, self._worker_manager
+        )
+
+        # Initialize controller with async support
         self._controller = MainWindowController(
             strategy_manager=self._strategy_manager,
             quote_service=self._quote_service,
             aggregator=self._aggregator,
+            async_quote_service=self._async_quote_service,
         )
 
         # Set up UI
@@ -226,9 +235,13 @@ class MainWindow(QMainWindow):
             self._config = dialog.get_config()
             self._logger.info("Configuration updated")
 
+            # Cancel any pending async operations
+            self._async_quote_service.cancel_all()
+
             # Reinitialize data service with new configuration
             self._data_service = self._init_data_service()
             self._quote_service.data_service = self._data_service
+            self._async_quote_service.data_service = self._data_service
 
             # Refresh data with new service
             self._on_symbol_changed(self.instrument_panel.get_symbol())
@@ -246,12 +259,16 @@ class MainWindow(QMainWindow):
         if self._config.use_real_data and isinstance(
             self._data_service, TradierOptionsDataService
         ):
+            # Cancel pending async operations for old symbol
+            self._async_quote_service.cancel_all()
+
             self._data_service = TradierOptionsDataService(
                 symbol=symbol,
                 base_url=self._config.tradier_base_url,
                 token=self._config.tradier_token,
             )
             self._quote_service.data_service = self._data_service
+            self._async_quote_service.data_service = self._data_service
 
         self._controller.on_symbol_changed(symbol)
         self._update_exp_label()
