@@ -7,6 +7,7 @@ state transitions.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
 import logging
 from typing import TYPE_CHECKING, cast
@@ -25,7 +26,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable as TCallable
 
     from ...data.tradier_data import StockQuote
-    from ...domain.models import StrategyMetrics
+    from ...domain.models import OptionQuote, StrategyMetrics
     from ...services.aggregation import AggregationService
     from ...services.async_quote_service import AsyncQuoteService
     from ...services.quote_service import QuoteService
@@ -37,6 +38,16 @@ if TYPE_CHECKING:
     from ..panels.strikes_panel import StrikesPanel
     from ..strike_ruler import BadgeSpec
     from ..timeline_widget import TimelineWidget
+
+
+@dataclass
+class PendingAddOption:
+    """Context for a pending async add option operation."""
+
+    contract: OptionContract
+    side: Side
+    underlier: Underlier
+    is_new_strategy: bool
 
 
 class MainWindowController:
@@ -89,6 +100,9 @@ class MainWindowController:
         self._is_loading = False
         self._max_expiries = 20
 
+        # Pending async operations
+        self._pending_add_option: PendingAddOption | None = None
+
         # Wire async signals if available
         if self.async_quote_service is not None:
             self._connect_async_signals()
@@ -103,6 +117,7 @@ class MainWindowController:
         connect_expiries = cast("TCallable[..., object]", svc.expiries_loaded.connect)
         connect_strikes = cast("TCallable[..., object]", svc.strikes_loaded.connect)
         connect_stock = cast("TCallable[..., object]", svc.stock_quote_loaded.connect)
+        connect_quote = cast("TCallable[..., object]", svc.quote_loaded.connect)
         connect_error = cast("TCallable[..., object]", svc.error_occurred.connect)
         connect_started = cast("TCallable[..., object]", svc.loading_started.connect)
         connect_finished = cast("TCallable[..., object]", svc.loading_finished.connect)
@@ -110,6 +125,7 @@ class MainWindowController:
         connect_expiries(self._on_expiries_loaded)
         connect_strikes(self._on_strikes_loaded)
         connect_stock(self._on_stock_quote_loaded)
+        connect_quote(self._on_quote_loaded)
         connect_error(self._on_async_error)
         connect_started(self._on_loading_started)
         connect_finished(self._on_loading_finished)
@@ -185,6 +201,63 @@ class MainWindowController:
             self.strikes_panel.center_on_value(current_price)
             self.strikes_panel.set_selected_strikes([nearest])
             self.strikes_panel.set_current_price(current_price, symbol.upper())
+
+    def _on_quote_loaded(
+        self,
+        _symbol: str,
+        expiry: date,
+        strike: float,
+        option_type: OptionType,
+        quote: OptionQuote,
+    ) -> None:
+        """Handle option quote loaded from background thread.
+
+        Args:
+            _symbol: The underlying symbol (unused, for signal signature).
+            expiry: The expiry date.
+            strike: The strike price.
+            option_type: CALL or PUT.
+            quote: The option quote.
+        """
+        # Complete pending add option if this quote matches
+        pending = self._pending_add_option
+        if pending is None:
+            return
+
+        contract = pending.contract
+        if (
+            contract.expiry != expiry
+            or contract.strike != strike
+            or contract.type != option_type
+        ):
+            # Quote doesn't match pending add - ignore
+            return
+
+        # Clear pending state
+        self._pending_add_option = None
+
+        # Create leg and add to strategy
+        leg = OptionLeg(
+            contract=contract,
+            side=pending.side,
+            quantity=1,
+            entry_price=quote.mid,
+        )
+
+        if pending.is_new_strategy:
+            self.strategy_manager.create_strategy("Strategy", pending.underlier, leg)
+        else:
+            self.strategy_manager.add_leg(leg)
+
+        self._logger.info(
+            "Added leg: %s %s @ %.2f",
+            pending.side.name,
+            option_type.name,
+            strike,
+        )
+
+        self.update_metrics()
+        self.update_chart()
 
     def _on_async_error(self, request_id: str, error: Exception) -> None:
         """Handle async API error.
@@ -371,17 +444,34 @@ class MainWindowController:
                 self.strikes_panel.center_on_value(centre)
                 self.strikes_panel.set_selected_strikes([centre])
 
-    def on_add_option(self, key: str) -> None:
-        """Handle add option action.
+    @staticmethod
+    def _parse_option_key(key: str) -> tuple[Side, OptionType] | None:
+        """Parse option key into side and type.
 
         Args:
             key: Option key (buy_call, sell_call, buy_put, sell_put).
-        """
-        if not self.strikes:
-            return
 
+        Returns:
+            Tuple of (Side, OptionType) or None if invalid key.
+        """
+        key_map: dict[str, tuple[Side, OptionType]] = {
+            "buy_call": (Side.BUY, OptionType.CALL),
+            "sell_call": (Side.SELL, OptionType.CALL),
+            "buy_put": (Side.BUY, OptionType.PUT),
+            "sell_put": (Side.SELL, OptionType.PUT),
+        }
+        return key_map.get(key)
+
+    def _get_add_option_context(
+        self,
+    ) -> tuple[str, float, Underlier, bool] | None:
+        """Get context needed for adding an option.
+
+        Returns:
+            Tuple of (symbol, strike, underlier, is_new_strategy) or None.
+        """
         if self.instrument_panel is None or self.strikes_panel is None:
-            return
+            return None
 
         symbol = self.instrument_panel.get_symbol()
         centre = self.strikes[len(self.strikes) // 2]
@@ -389,7 +479,6 @@ class MainWindowController:
         anchor = self.strikes_panel.get_center_strike()
         strike_chosen = float(anchor) if anchor is not None else float(centre)
 
-        # Get spot price
         strategy = self.strategy_manager.strategy
         spot = (
             strategy.underlier.spot
@@ -399,7 +488,6 @@ class MainWindowController:
         if spot is None:
             spot = centre
 
-        # Get or create underlier
         underlier = (
             strategy.underlier
             if strategy is not None
@@ -411,26 +499,33 @@ class MainWindowController:
             )
         )
 
-        # Parse option type and side
-        if key == "buy_call":
-            side, otype = Side.BUY, OptionType.CALL
-        elif key == "sell_call":
-            side, otype = Side.SELL, OptionType.CALL
-        elif key == "buy_put":
-            side, otype = Side.BUY, OptionType.PUT
-        elif key == "sell_put":
-            side, otype = Side.SELL, OptionType.PUT
-        else:
+        return (symbol, strike_chosen, underlier, strategy is None)
+
+    def on_add_option(self, key: str) -> None:
+        """Handle add option action.
+
+        Args:
+            key: Option key (buy_call, sell_call, buy_put, sell_put).
+        """
+        if not self.strikes:
             return
 
-        # Get expiry for new leg
+        parsed = self._parse_option_key(key)
+        if parsed is None:
+            return
+        side, otype = parsed
+
+        context = self._get_add_option_context()
+        if context is None:
+            return
+        symbol, strike_chosen, underlier, is_new_strategy = context
+
         expiry_for_leg = self.strategy_manager.get_expiry_for_new_leg(
             self.selected_expiry
         )
         if expiry_for_leg is None:
             return
 
-        # Create contract and get quote
         contract = OptionContract(
             underlier=underlier,
             expiry=expiry_for_leg,
@@ -438,14 +533,27 @@ class MainWindowController:
             type=otype,
         )
 
+        # Use async service if available
+        if self.async_quote_service is not None:
+            self._pending_add_option = PendingAddOption(
+                contract=contract,
+                side=side,
+                underlier=underlier,
+                is_new_strategy=is_new_strategy,
+            )
+            self.async_quote_service.fetch_quote(
+                symbol, expiry_for_leg, float(strike_chosen), otype
+            )
+            return
+
+        # Fallback to sync service
         quote = self.quote_service.get_quote(
             symbol, expiry_for_leg, float(strike_chosen), otype
         )
 
         leg = OptionLeg(contract=contract, side=side, quantity=1, entry_price=quote.mid)
 
-        # Add to strategy
-        if strategy is None:
+        if is_new_strategy:
             self.strategy_manager.create_strategy("Strategy", underlier, leg)
         else:
             self.strategy_manager.add_leg(leg)
