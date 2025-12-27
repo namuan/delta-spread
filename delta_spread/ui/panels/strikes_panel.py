@@ -61,7 +61,6 @@ class StrikesPanel(QWidget):
         on_toggle: Callable[[int, object], None] | None = None,
         on_remove: Callable[[int], None] | None = None,
         on_move: Callable[[int, float], None] | None = None,
-        on_preview: Callable[[int, float], None] | None = None,
     ) -> None:
         """Set interaction handlers for the strike ruler.
 
@@ -69,14 +68,12 @@ class StrikesPanel(QWidget):
             on_toggle: Callback for badge toggle events.
             on_remove: Callback for badge remove events.
             on_move: Callback for badge move events.
-            on_preview: Callback for badge preview move events.
         """
         # wrapper to cast object to OptionType if needed, though handler signature in ruler is specific
         self.strike_ruler.set_interaction_handlers(
             on_toggle=on_toggle,
             on_remove=on_remove,
             on_move=on_move,
-            on_preview=on_preview,
         )
 
     def set_detail_data_provider(

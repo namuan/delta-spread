@@ -22,6 +22,9 @@ from ...domain.models import (
 from ...services.presenter import ChartData, ChartPresenter, MetricsPresenter
 from ..styles import COLOR_DANGER_RED, COLOR_SUCCESS_GREEN
 
+# Constants
+STRIKE_TOLERANCE = 0.01  # Tolerance for comparing strike prices
+
 if TYPE_CHECKING:
     from collections.abc import Callable as TCallable
 
@@ -90,9 +93,7 @@ class MainWindowController:
     handling complex workflows like adding options, updating
     metrics, and refreshing charts.
 
-    Supports both synchronous and asynchronous API operations:
-    - When async_quote_service is provided, uses background threads
-    - Falls back to synchronous operations otherwise
+    All API operations use the async quote service via background workers.
     """
 
     def __init__(
@@ -100,7 +101,7 @@ class MainWindowController:
         strategy_manager: StrategyManager,
         quote_service: QuoteService,
         aggregator: AggregationService,
-        async_quote_service: AsyncQuoteService | None = None,
+        async_quote_service: AsyncQuoteService,
         trade_service: TradeServiceProtocol | None = None,
     ) -> None:
         """Initialize the controller.
@@ -109,7 +110,7 @@ class MainWindowController:
             strategy_manager: Service for managing strategy state.
             quote_service: Service for fetching quotes (sync).
             aggregator: Service for aggregating strategy metrics.
-            async_quote_service: Optional async quote service for background API calls.
+            async_quote_service: Async quote service for background API calls.
             trade_service: Optional service for saving/loading trades.
         """
         super().__init__()
@@ -146,16 +147,11 @@ class MainWindowController:
         self._pending_move: PendingMove | None = None
         self._pending_expiry_changes: list[PendingExpiryChange] = []
 
-        # Wire async signals if available
-        if self.async_quote_service is not None:
-            self._connect_async_signals()
+        # Wire async signals
+        self._connect_async_signals()
 
     def _connect_async_signals(self) -> None:
         """Connect signals from the async quote service."""
-        if self.async_quote_service is None:
-            return
-
-        # Use cast to work around PyQt6 type stub limitations
         svc = self.async_quote_service
         connect_expiries = cast("TCallable[..., object]", svc.expiries_loaded.connect)
         connect_strikes = cast("TCallable[..., object]", svc.strikes_loaded.connect)
@@ -184,7 +180,7 @@ class MainWindowController:
         self.render_timeline()
 
         # Chain: fetch stock quote after expiries
-        if self.instrument_panel is not None and self.async_quote_service is not None:
+        if self.instrument_panel is not None:
             symbol = self.instrument_panel.get_symbol()
             self.async_quote_service.fetch_stock_quote(symbol)
 
@@ -218,7 +214,7 @@ class MainWindowController:
         if self.strikes_panel is not None:
             self.strikes_panel.set_strikes(self.strikes)
 
-        if self.strikes and self.async_quote_service is not None:
+        if self.strikes:
             # Center on current price - need to fetch stock quote
             self.async_quote_service.fetch_stock_quote(symbol)
 
@@ -480,10 +476,7 @@ class MainWindowController:
         Args:
             operation: The type of operation that finished.
         """
-        if (
-            self.async_quote_service is not None
-            and not self.async_quote_service.is_loading
-        ):
+        if not self.async_quote_service.is_loading:
             self._is_loading = False
             if self.instrument_panel is not None:
                 self.instrument_panel.hide_loading()
@@ -538,18 +531,8 @@ class MainWindowController:
         """
         self._max_expiries = max_expiries
 
-        # Use async service if available
-        if self.async_quote_service is not None:
-            self.async_quote_service.fetch_expiries()
-            return
-
-        # Fallback to sync
-        all_expiries = self.quote_service.get_expiries()
-        self.expiries = all_expiries[:max_expiries]
-        self.selected_expiry = None
-
-        self.update_stock_quote()
-        self.render_timeline()
+        # Always use async service
+        self.async_quote_service.fetch_expiries()
 
     def update_stock_quote(self) -> None:
         """Update price and change labels with current stock quote."""
@@ -558,14 +541,8 @@ class MainWindowController:
 
         symbol = self.instrument_panel.get_symbol()
 
-        # Use async service if available
-        if self.async_quote_service is not None:
-            self.async_quote_service.fetch_stock_quote(symbol)
-            return
-
-        # Fallback to sync
-        quote = self.quote_service.get_stock_quote(symbol)
-        self.instrument_panel.update_quote(quote)
+        # Always use async service
+        self.async_quote_service.fetch_stock_quote(symbol)
 
     def render_timeline(self) -> None:
         """Render the timeline with current expiries."""
@@ -622,48 +599,16 @@ class MainWindowController:
             )
             self._pending_expiry_changes.append(pending)
 
-            # Fetch quote for the leg at new expiry
-            if self.async_quote_service is not None:
-                self.async_quote_service.fetch_quote(
-                    symbol,
-                    new_expiry,
-                    leg.contract.strike,
-                    leg.contract.type,
-                )
-            else:
-                # Fallback to sync
-                try:
-                    quote = self.quote_service.get_quote(
-                        symbol,
-                        new_expiry,
-                        leg.contract.strike,
-                        leg.contract.type,
-                    )
-                    self.strategy_manager.update_leg_expiry(
-                        leg_idx, new_expiry, quote.mid
-                    )
-                    self._logger.info(
-                        "Updated leg %d expiry to %s with price %.2f",
-                        leg_idx,
-                        new_expiry,
-                        quote.mid,
-                    )
-                except (ValueError, KeyError) as e:
-                    self._logger.warning(
-                        "Failed to update leg %d expiry: %s", leg_idx, e
-                    )
-
-        # Clear pending list if sync (already processed)
-        if self.async_quote_service is None:
-            self._pending_expiry_changes.clear()
-            self.update_metrics()
-            self.update_chart()
+            # Fetch quote for the leg at new expiry using async service
+            self.async_quote_service.fetch_quote(
+                symbol,
+                new_expiry,
+                leg.contract.strike,
+                leg.contract.type,
+            )
 
     def load_strikes_for_expiry(self) -> None:
-        """Load strikes for the selected expiry.
-
-        Uses async service if available, otherwise falls back to sync.
-        """
+        """Load strikes for the selected expiry."""
         if self.selected_expiry is None:
             return
 
@@ -672,45 +617,10 @@ class MainWindowController:
 
         symbol = self.instrument_panel.get_symbol()
 
-        # Use async service if available
-        if self.async_quote_service is not None:
-            self.async_quote_service.fetch_strikes(symbol, self.selected_expiry)
-            return
-
-        # Fallback to sync
-        self.strikes = self.quote_service.get_strikes(symbol, self.selected_expiry)
-
-        self._logger.info(
-            "load_strikes_for_expiry: symbol=%s, num_strikes=%d",
-            symbol,
-            len(self.strikes),
-        )
-
-        self.strikes_panel.set_strikes(self.strikes)
-
-        if self.strikes:
-            # Get current stock price and center on the strike closest to it
-            quote = self.quote_service.get_stock_quote(symbol)
-            if quote is not None:
-                current_price = quote["last"]
-                nearest = min(self.strikes, key=lambda s: abs(s - current_price))
-                self._logger.info(
-                    "load_strikes_for_expiry: current_price=%.2f, nearest_strike=%.2f, calling center_on_value",
-                    current_price,
-                    nearest,
-                )
-                self.strikes_panel.center_on_value(current_price)
-                self.strikes_panel.set_selected_strikes([nearest])
-                self.strikes_panel.set_current_price(current_price, symbol.upper())
-            else:
-                # Fallback to middle strike if quote unavailable
-                centre = self.strikes[len(self.strikes) // 2]
-                self._logger.info(
-                    "load_strikes_for_expiry: NO QUOTE, using middle strike=%.2f",
-                    centre,
-                )
-                self.strikes_panel.center_on_value(centre)
-                self.strikes_panel.set_selected_strikes([centre])
+        # Always use async service
+        self.async_quote_service.fetch_strikes(symbol, self.selected_expiry)
+        # Pre-fetch the full option chain to populate cache
+        self.async_quote_service.fetch_chain(symbol, self.selected_expiry)
 
     @staticmethod
     def _parse_option_key(key: str) -> tuple[Side, OptionType] | None:
@@ -801,37 +711,16 @@ class MainWindowController:
             type=otype,
         )
 
-        # Use async service if available
-        if self.async_quote_service is not None:
-            self._pending_add_option = PendingAddOption(
-                contract=contract,
-                side=side,
-                underlier=underlier,
-                is_new_strategy=is_new_strategy,
-            )
-            self.async_quote_service.fetch_quote(
-                symbol, expiry_for_leg, float(strike_chosen), otype
-            )
-            return
-
-        # Fallback to sync service
-        quote = self.quote_service.get_quote(
+        # Always use async service
+        self._pending_add_option = PendingAddOption(
+            contract=contract,
+            side=side,
+            underlier=underlier,
+            is_new_strategy=is_new_strategy,
+        )
+        self.async_quote_service.fetch_quote(
             symbol, expiry_for_leg, float(strike_chosen), otype
         )
-
-        leg = OptionLeg(contract=contract, side=side, quantity=1, entry_price=quote.mid)
-
-        if is_new_strategy:
-            self.strategy_manager.create_strategy("Strategy", underlier, leg)
-        else:
-            self.strategy_manager.add_leg(leg)
-
-        self._logger.info(
-            "Added leg: %s %s @ %.2f", side.name, otype.name, strike_chosen
-        )
-
-        self.update_metrics()
-        self.update_chart()
 
     def on_badge_remove(self, leg_idx: int) -> None:
         """Handle badge removal.
@@ -869,33 +758,21 @@ class MainWindowController:
         symbol = self.instrument_panel.get_symbol()
         leg = strategy.legs[leg_idx]
 
-        # Use async service if available
-        if self.async_quote_service is not None:
-            self._pending_toggle = PendingToggle(
-                leg_idx=leg_idx,
-                new_type=new_type,
-                expiry=leg.contract.expiry,
-                strike=leg.contract.strike,
-            )
-            self.async_quote_service.fetch_quote(
-                symbol, leg.contract.expiry, leg.contract.strike, new_type
-            )
-            return
-
-        # Fallback to sync service
-        quote = self.quote_service.get_quote(
+        # Always use async service
+        self._pending_toggle = PendingToggle(
+            leg_idx=leg_idx,
+            new_type=new_type,
+            expiry=leg.contract.expiry,
+            strike=leg.contract.strike,
+        )
+        self.async_quote_service.fetch_quote(
             symbol, leg.contract.expiry, leg.contract.strike, new_type
         )
 
-        try:
-            self.strategy_manager.update_leg_type(leg_idx, new_type, quote.mid)
-            self.update_metrics()
-            self.update_chart()
-        except ValueError as e:
-            self._logger.warning("Failed to toggle leg type: %s", e)
-
     def on_badge_move(self, leg_idx: int, new_strike: float) -> None:
         """Handle badge move to new strike.
+
+        All API calls execute in background workers, even when accessing cached data.
 
         Args:
             leg_idx: Index of the leg to move.
@@ -914,90 +791,16 @@ class MainWindowController:
         symbol = self.instrument_panel.get_symbol()
         leg = strategy.legs[leg_idx]
 
-        # Use async service if available
-        if self.async_quote_service is not None:
-            self._pending_move = PendingMove(
-                leg_idx=leg_idx,
-                new_strike=float(new_strike),
-                expiry=leg.contract.expiry,
-                option_type=leg.contract.type,
-            )
-            self.async_quote_service.fetch_quote(
-                symbol, leg.contract.expiry, float(new_strike), leg.contract.type
-            )
-            return
-
-        # Fallback to sync service
-        quote = self.quote_service.get_quote(
+        # Always use async service - executes in background worker (uses cached chain data)
+        self._pending_move = PendingMove(
+            leg_idx=leg_idx,
+            new_strike=float(new_strike),
+            expiry=leg.contract.expiry,
+            option_type=leg.contract.type,
+        )
+        self.async_quote_service.fetch_quote(
             symbol, leg.contract.expiry, float(new_strike), leg.contract.type
         )
-
-        try:
-            self.strategy_manager.update_leg_strike(leg_idx, new_strike, quote.mid)
-            self._logger.info("Move leg: idx=%d strike=%.2f", leg_idx, new_strike)
-            self.update_metrics()
-            self.update_chart()
-        except ValueError as e:
-            self._logger.warning("Failed to move leg: %s", e)
-
-    def on_badge_preview_move(self, leg_idx: int, new_strike: float) -> None:
-        """Handle badge preview move (drag preview).
-
-        Note: This intentionally uses sync API for immediate feedback during drag.
-
-        Args:
-            leg_idx: Index of the leg being previewed.
-            new_strike: New strike price for preview.
-        """
-        strategy = self.strategy_manager.strategy
-        if strategy is None:
-            return
-
-        if leg_idx < 0 or leg_idx >= len(strategy.legs):
-            return
-
-        if self.instrument_panel is None:
-            return
-
-        symbol = self.instrument_panel.get_symbol()
-        leg = strategy.legs[leg_idx]
-
-        # Sync call intentional - preview needs immediate feedback during drag
-        quote = self.quote_service.get_quote(
-            symbol, leg.contract.expiry, float(new_strike), leg.contract.type
-        )
-
-        preview = self.strategy_manager.create_preview_strategy(
-            leg_idx, new_strike, quote.mid
-        )
-
-        if preview is None:
-            return
-
-        ivs = self.quote_service.get_ivs_for_strategy(preview)
-        m = self.aggregator.aggregate(preview, spot=preview.underlier.spot, ivs=ivs)
-
-        strikes_sel = [leg_p.contract.strike for leg_p in preview.legs]
-        cd = ChartPresenter.prepare(
-            m,
-            strike_lines=strikes_sel,
-            current_price=strategy.underlier.spot,
-        )
-
-        stats = self._grid_stats(m)
-        self._logger.info(
-            "Preview chart: leg=%d strike=%.2f grid=%s",
-            leg_idx,
-            new_strike,
-            stats,
-        )
-
-        if self.strikes_panel is not None:
-            self.strikes_panel.set_selected_strikes(strikes_sel)
-
-        if self.chart is not None:
-            self.chart.set_chart_data(cd)
-            self.chart.repaint()
 
     def update_metrics(self) -> None:
         """Update the metrics display."""

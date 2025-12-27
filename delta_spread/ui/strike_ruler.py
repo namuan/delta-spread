@@ -49,7 +49,6 @@ class StrikeRuler(QWidget):
         self._toggle_handler: Callable[[int, OptionType], None] | None = None
         self._remove_handler: Callable[[int], None] | None = None
         self._move_handler: Callable[[int, float], None] | None = None
-        self._preview_handler: Callable[[int, float], None] | None = None
         self._detail_data_provider: Callable[[int], OptionDetailData | None] | None = (
             None
         )
@@ -61,12 +60,10 @@ class StrikeRuler(QWidget):
         on_toggle: Callable[[int, OptionType], None] | None = None,
         on_remove: Callable[[int], None] | None = None,
         on_move: Callable[[int, float], None] | None = None,
-        on_preview: Callable[[int, float], None] | None = None,
     ) -> None:
         self._toggle_handler = on_toggle
         self._remove_handler = on_remove
         self._move_handler = on_move
-        self._preview_handler = on_preview
 
     def set_detail_data_provider(
         self, provider: Callable[[int], OptionDetailData | None] | None
@@ -257,8 +254,6 @@ class StrikeRuler(QWidget):
             w.set_remove_context(b["leg_idx"], self._remove_handler)
         if self._move_handler is not None:
             w.set_move_context(b["leg_idx"], self._move_handler)
-        if self._preview_handler is not None:
-            w.set_preview_context(b["leg_idx"], self._preview_handler)
         if self._detail_data_provider is not None:
             w.set_detail_data_provider(self._detail_data_provider)
         return w

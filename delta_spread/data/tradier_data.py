@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime
 import logging
+import threading
+import time
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 from dotmap import DotMap  # type: ignore[import-untyped]
@@ -12,6 +14,7 @@ import requests
 from delta_spread.domain.models import OptionQuote
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import date
 
     from delta_spread.domain.models import OptionType
@@ -49,6 +52,12 @@ class TradierOptionsDataService:
         self.token = token
         self._expiries_cache: list[date] | None = None
         self._chain_cache: dict[tuple[str, date], list[OptionQuote]] = {}
+        self._raw_chain_cache: dict[tuple[str, date], Sequence[object]] = {}
+        self._stock_quote_cache: StockQuote | None = None
+        self._cache_locks: dict[tuple[str, date], threading.Lock] = {}
+        self._locks_lock = threading.Lock()  # Lock for managing locks
+        self._expiries_lock = threading.Lock()  # Lock for expiries
+        self._stock_quote_lock = threading.Lock()  # Lock for stock quotes
 
     def _get_data(self, path: str, params: dict[str, Any]) -> DotMap:  # type: ignore[misc]
         """Make authenticated request to Tradier API.
@@ -69,12 +78,25 @@ class TradierOptionsDataService:
             "Accept": "application/json",
         }
 
+        # Start timing the request
+        start_time = time.perf_counter()
+
         try:
             response = requests.get(url, params=params, headers=headers, timeout=10)
             response.raise_for_status()
+
+            # Calculate elapsed time and log with params
+            elapsed_time = time.perf_counter() - start_time
+            logger.info(
+                f"API: {url} | Params: {params} | Duration: {elapsed_time:.3f}s | Status: {response.status_code}"
+            )
+
             return DotMap(response.json())  # type: ignore[no-any-return]
         except requests.RequestException as e:
-            logger.error(f"Tradier API request failed: {e}")
+            elapsed_time = time.perf_counter() - start_time
+            logger.error(
+                f"API Failed: {url} | Params: {params} | Duration: {elapsed_time:.3f}s | Error: {e}"
+            )
             raise
 
     def get_stock_quote(self) -> StockQuote | None:
@@ -83,29 +105,44 @@ class TradierOptionsDataService:
         Returns:
             Dictionary with quote data or None if request fails
         """
-        path = "/markets/quotes"
-        params = {"symbols": self.symbol}
+        with self._stock_quote_lock:
+            # Check cache first
+            if self._stock_quote_cache is not None:
+                logger.info(f"Using cached stock quote for {self.symbol}")
+                return self._stock_quote_cache
 
-        try:
-            response = self._get_data(path, params)
+            path = "/markets/quotes"
+            params = {"symbols": self.symbol}
 
-            if not hasattr(response, "quotes") or not response.quotes:  # type: ignore[attr-defined]
-                logger.warning(f"No quote found for {self.symbol}")
+            try:
+                response = self._get_data(path, params)
+
+                if not hasattr(response, "quotes") or not response.quotes:  # type: ignore[attr-defined]
+                    logger.warning(f"No quote found for {self.symbol}")
+                    return None
+
+                quote = response.quotes.get("quote", {})  # type: ignore[attr-defined]
+                if isinstance(quote, list) and quote:
+                    quote = quote[0]  # type: ignore[assignment]
+
+                stock_quote: StockQuote = {
+                    "last": float(quote.get("last", 0) or 0),  # type: ignore[union-attr]
+                    "change": float(quote.get("change", 0) or 0),  # type: ignore[union-attr]
+                    "change_percentage": float(quote.get("change_percentage", 0) or 0),  # type: ignore[union-attr]
+                    "prevclose": float(quote.get("prevclose", 0) or 0),  # type: ignore[union-attr]
+                }
+
+                # Cache the result
+                self._stock_quote_cache = stock_quote
+                return stock_quote
+            except (
+                requests.RequestException,
+                KeyError,
+                ValueError,
+                AttributeError,
+            ) as e:
+                logger.error(f"Failed to fetch stock quote: {e}")
                 return None
-
-            quote = response.quotes.get("quote", {})  # type: ignore[attr-defined]
-            if isinstance(quote, list) and quote:
-                quote = quote[0]  # type: ignore[assignment]
-
-            return {
-                "last": float(quote.get("last", 0) or 0),  # type: ignore[union-attr]
-                "change": float(quote.get("change", 0) or 0),  # type: ignore[union-attr]
-                "change_percentage": float(quote.get("change_percentage", 0) or 0),  # type: ignore[union-attr]
-                "prevclose": float(quote.get("prevclose", 0) or 0),  # type: ignore[union-attr]
-            }
-        except (requests.RequestException, KeyError, ValueError, AttributeError) as e:
-            logger.error(f"Failed to fetch stock quote: {e}")
-            return None
 
     def get_expiries(self) -> list[date]:
         """Fetch available expiration dates for the symbol.
@@ -113,38 +150,46 @@ class TradierOptionsDataService:
         Returns:
             List of expiration dates sorted chronologically
         """
-        if self._expiries_cache is not None:
-            return self._expiries_cache
+        with self._expiries_lock:
+            # Check cache inside lock
+            if self._expiries_cache is not None:
+                logger.info(f"Using cached expiries for {self.symbol}")
+                return self._expiries_cache
 
-        path = "/markets/options/expirations"
-        params = {
-            "symbol": self.symbol,
-            "includeAllRoots": "true",
-        }
+            path = "/markets/options/expirations"
+            params = {
+                "symbol": self.symbol,
+                "includeAllRoots": "true",
+            }
 
-        try:
-            response = self._get_data(path, params)
+            try:
+                response = self._get_data(path, params)
 
-            if not hasattr(response, "expirations") or not response.expirations:  # type: ignore[misc]
-                logger.warning(f"No expirations found for {self.symbol}")
+                if not hasattr(response, "expirations") or not response.expirations:  # type: ignore[misc]
+                    logger.warning(f"No expirations found for {self.symbol}")
+                    return []
+
+                # Parse dates from the response
+                dates_list = response.expirations.get("date", [])  # type: ignore[attr-defined,misc]
+                if isinstance(dates_list, str):
+                    dates_list = [dates_list]
+
+                expiries = [datetime.strptime(d, "%Y-%m-%d").date() for d in dates_list]  # type: ignore[misc,arg-type,union-attr]
+
+                self._expiries_cache = sorted(expiries)
+                logger.info(
+                    f"Fetched {len(self._expiries_cache)} expiries for {self.symbol}"
+                )
+                return self._expiries_cache
+
+            except (
+                requests.RequestException,
+                KeyError,
+                ValueError,
+                AttributeError,
+            ) as e:
+                logger.error(f"Failed to fetch expiries: {e}")
                 return []
-
-            # Parse dates from the response
-            dates_list = response.expirations.get("date", [])  # type: ignore[attr-defined,misc]
-            if isinstance(dates_list, str):
-                dates_list = [dates_list]
-
-            expiries = [datetime.strptime(d, "%Y-%m-%d").date() for d in dates_list]  # type: ignore[misc,arg-type,union-attr]
-
-            self._expiries_cache = sorted(expiries)
-            logger.info(
-                f"Fetched {len(self._expiries_cache)} expiries for {self.symbol}"
-            )
-            return self._expiries_cache
-
-        except (requests.RequestException, KeyError, ValueError, AttributeError) as e:
-            logger.error(f"Failed to fetch expiries: {e}")
-            return []
 
     def get_strikes(self, symbol: str, expiry: date) -> list[float]:
         """Get available strikes for a given expiration.
@@ -156,9 +201,7 @@ class TradierOptionsDataService:
         Returns:
             Sorted list of strike prices
         """
-        self.get_chain(symbol, expiry)
-        # Extract unique strikes from the chain
-        # Extract unique strikes from the raw chain data
+        # Use cached raw chain data to avoid duplicate API calls
         raw_chain = self._get_raw_chain(symbol, expiry)
         strike_set: set[float] = set()
         for opt_data in raw_chain:  # type: ignore[attr-defined]
@@ -207,29 +250,52 @@ class TradierOptionsDataService:
         Returns:
             List of raw option data dictionaries
         """
-        path = "/markets/options/chains"
-        params = {
-            "symbol": symbol.upper(),
-            "expiration": expiry.strftime("%Y-%m-%d"),
-            "greeks": "true",
-        }
+        cache_key = (symbol.upper(), expiry)
 
-        try:
-            response = self._get_data(path, params)
+        # Get or create a lock for this cache key
+        with self._locks_lock:
+            if cache_key not in self._cache_locks:
+                self._cache_locks[cache_key] = threading.Lock()
+            cache_lock = self._cache_locks[cache_key]
 
-            if not hasattr(response, "options") or not response.options:  # type: ignore[attr-defined]
-                logger.warning(f"No options found for {symbol} {expiry}")
+        # Use the lock to ensure only one thread fetches data for this key
+        with cache_lock:
+            # Check cache again inside the lock
+            if cache_key in self._raw_chain_cache:
+                logger.info(f"Using cached raw chain for {symbol} {expiry}")
+                return list(self._raw_chain_cache[cache_key])
+
+            # Fetch from API
+            path = "/markets/options/chains"
+            params = {
+                "symbol": symbol.upper(),
+                "expiration": expiry.strftime("%Y-%m-%d"),
+                "greeks": "true",
+            }
+
+            try:
+                response = self._get_data(path, params)
+
+                if not hasattr(response, "options") or not response.options:  # type: ignore[attr-defined]
+                    logger.warning(f"No options found for {symbol} {expiry}")
+                    return []
+
+                options = response.options.get("option", [])  # type: ignore[attr-defined]
+                if isinstance(options, dict):
+                    options = [options]  # type: ignore[assignment]
+
+                # Cache the raw chain data
+                self._raw_chain_cache[cache_key] = options
+                return options  # type: ignore[return-value]
+
+            except (
+                requests.RequestException,
+                KeyError,
+                ValueError,
+                AttributeError,
+            ) as e:
+                logger.error(f"Failed to fetch chain: {e}")
                 return []
-
-            options = response.options.get("option", [])  # type: ignore[attr-defined]
-            if isinstance(options, dict):
-                options = [options]  # type: ignore[assignment]
-
-            return options  # type: ignore[return-value]
-
-        except (requests.RequestException, KeyError, ValueError, AttributeError) as e:
-            logger.error(f"Failed to fetch chain: {e}")
-            return []
 
     def get_quote(
         self, symbol: str, expiry: date, strike: float, type: OptionType

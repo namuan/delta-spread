@@ -254,7 +254,6 @@ class MainWindow(QMainWindow):
             on_toggle=self._on_badge_toggle,
             on_remove=self._on_badge_remove,
             on_move=self._on_badge_move,
-            on_preview=self._on_badge_preview_move,
         )
         self.strikes_panel.set_detail_data_provider(self._get_option_detail_data)
 
@@ -292,13 +291,19 @@ class MainWindow(QMainWindow):
             # Cancel pending async operations for old symbol
             self._async_quote_service.cancel_all()
 
-            self._data_service = TradierOptionsDataService(
-                symbol=symbol,
-                base_url=self._config.tradier_base_url,
-                token=self._config.tradier_token,
-            )
-            self._quote_service.data_service = self._data_service
-            self._async_quote_service.data_service = self._data_service
+            # Only create new data service if symbol actually changed
+            # This preserves caching when reloading same symbol
+            if (
+                not hasattr(self._data_service, "symbol")
+                or self._data_service.symbol != symbol.upper()
+            ):
+                self._data_service = TradierOptionsDataService(
+                    symbol=symbol,
+                    base_url=self._config.tradier_base_url,
+                    token=self._config.tradier_token,
+                )
+                self._quote_service.data_service = self._data_service
+                self._async_quote_service.data_service = self._data_service
 
         self._controller.on_symbol_changed(symbol)
         self._update_exp_label()
@@ -357,15 +362,6 @@ class MainWindow(QMainWindow):
             new_strike: New strike price.
         """
         self._controller.on_badge_move(leg_idx, new_strike)
-
-    def _on_badge_preview_move(self, leg_idx: int, new_strike: float) -> None:
-        """Handle badge preview move.
-
-        Args:
-            leg_idx: Index of the leg being previewed.
-            new_strike: New strike price for preview.
-        """
-        self._controller.on_badge_preview_move(leg_idx, new_strike)
 
     def _get_option_detail_data(self, leg_idx: int) -> OptionDetailData | None:
         """Get real-time option detail data for a leg.

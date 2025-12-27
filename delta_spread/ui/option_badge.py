@@ -2,7 +2,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, TypedDict, cast, override
 
-from PyQt6.QtCore import QPoint, QRect, Qt, QTimer
+from PyQt6.QtCore import QPoint, QRect, Qt
 from PyQt6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPainterPath, QPaintEvent
 from PyQt6.QtWidgets import (
     QDialog,
@@ -76,7 +76,6 @@ class OptionBadge(QWidget):
         self._toggle_handler: Callable[[int, OptionType], None] | None = None
         self._remove_handler: Callable[[int], None] | None = None
         self._move_handler: Callable[[int, float], None] | None = None
-        self._preview_handler: Callable[[int, float], None] | None = None
         self._detail_data_provider: Callable[[int], OptionDetailData | None] | None = (
             None
         )
@@ -88,13 +87,6 @@ class OptionBadge(QWidget):
         self._drag_threshold: int = 7
         self._multi_count: int = 1
         self._badge_siblings: list[OptionBadge] = []
-        self._preview_debounce_timer: QTimer = QTimer(self)
-        self._preview_debounce_timer.setSingleShot(True)
-        self._preview_debounce_timer.setInterval(150)  # 150ms debounce
-        self._preview_debounce_timer.timeout.connect(  # pyright: ignore[reportUnknownMemberType]
-            self._emit_debounced_preview
-        )
-        self._pending_preview_strike: float | None = None
         self.setFixedSize(50, 25)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
@@ -121,14 +113,6 @@ class OptionBadge(QWidget):
     ) -> None:
         self._leg_idx = leg_idx
         self._move_handler = handler
-
-    def set_preview_context(
-        self,
-        leg_idx: int,
-        handler: Callable[[int, float], None] | None,
-    ) -> None:
-        self._leg_idx = leg_idx
-        self._preview_handler = handler
 
     def set_detail_data_provider(
         self,
@@ -228,20 +212,9 @@ class OptionBadge(QWidget):
             centre_x = new_x + (self.width() // 2)
             strike = cast("_HasStrikeAtX", parent).strike_at_x(centre_x)
             cast("_HasDragHighlight", parent).set_drag_highlight(float(strike))
-            if self._preview_handler is not None and self._leg_idx is not None:
-                self._pending_preview_strike = float(strike)
-                self._preview_debounce_timer.start()
+            # Preview updates disabled during drag for better performance
         a0.accept()
         return
-
-    def _emit_debounced_preview(self) -> None:
-        """Emit the debounced preview after the timer fires."""
-        if (
-            self._preview_handler is not None
-            and self._leg_idx is not None
-            and self._pending_preview_strike is not None
-        ):
-            self._preview_handler(self._leg_idx, self._pending_preview_strike)
 
     @override
     def mouseReleaseEvent(self, a0: QMouseEvent | None) -> None:
@@ -249,9 +222,6 @@ class OptionBadge(QWidget):
             super().mouseReleaseEvent(a0)
             return
         if self._dragging:
-            # Stop debounce timer and clear pending preview on drag end
-            self._preview_debounce_timer.stop()
-            self._pending_preview_strike = None
             self.setCursor(Qt.CursorShape.PointingHandCursor)
             parent = self.parentWidget()
             if (
