@@ -144,6 +144,7 @@ max-complexity = 10  # Maximum cyclomatic complexity
 
 [tool.ruff.lint.pylint]
 max-nested-blocks = 3  # Maximum nested block depth (PLR1702)
+max-public-methods = 35  # Controller classes may have many handlers (PLR0904)
 
 # Per-file ignores
 [tool.ruff.lint.per-file-ignores]

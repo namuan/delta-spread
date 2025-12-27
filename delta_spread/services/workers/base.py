@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import abstractmethod
+import contextlib
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import override
@@ -90,17 +91,21 @@ class BaseWorker(QRunnable):
 
     @override
     def run(self) -> None:
-        """Run the worker (called by QThreadPool)."""
+        """Run the worker (called by QThreadPool).
+
+        Note: Signal emissions are wrapped in try-except to handle
+        application shutdown gracefully when Qt objects are deleted.
+        """
         if self._is_cancelled:
-            self.signals.cancelled.emit(self.request_id)
+            self._safe_emit_cancelled()
             return
 
-        self.signals.started.emit(self.request_id)
+        self._safe_emit_started()
 
         try:
             result = self.execute()
             if self._is_cancelled:
-                self.signals.cancelled.emit(self.request_id)
+                self._safe_emit_cancelled()
                 return
 
             worker_result: WorkerResult[object] = WorkerResult(
@@ -108,7 +113,7 @@ class BaseWorker(QRunnable):
                 error=None,
                 request_id=self.request_id,
             )
-            self.signals.finished.emit(worker_result)
+            self._safe_emit_finished(worker_result)
 
         except Exception as e:  # noqa: BLE001
             # Catch all exceptions from user code to emit as errors
@@ -117,8 +122,28 @@ class BaseWorker(QRunnable):
                 error=e,
                 request_id=self.request_id,
             )
-            self.signals.finished.emit(worker_result)
-            self.signals.error.emit(self.request_id, e)
+            self._safe_emit_finished(worker_result)
+            self._safe_emit_error(e)
+
+    def _safe_emit_started(self) -> None:
+        """Safely emit started signal, ignoring if Qt objects deleted."""
+        with contextlib.suppress(RuntimeError):
+            self.signals.started.emit(self.request_id)
+
+    def _safe_emit_finished(self, result: WorkerResult[object]) -> None:
+        """Safely emit finished signal, ignoring if Qt objects deleted."""
+        with contextlib.suppress(RuntimeError):
+            self.signals.finished.emit(result)
+
+    def _safe_emit_cancelled(self) -> None:
+        """Safely emit cancelled signal, ignoring if Qt objects deleted."""
+        with contextlib.suppress(RuntimeError):
+            self.signals.cancelled.emit(self.request_id)
+
+    def _safe_emit_error(self, error: Exception) -> None:
+        """Safely emit error signal, ignoring if Qt objects deleted."""
+        with contextlib.suppress(RuntimeError):
+            self.signals.error.emit(self.request_id, error)
 
     def cancel(self) -> None:
         """Request cancellation of this worker."""

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
-from PyQt6.QtCore import QPoint, pyqtSignal
+from PyQt6.QtCore import QPoint, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -21,6 +21,8 @@ from PyQt6.QtWidgets import (
 from ..styles import (
     BUTTON_PRIMARY_STYLE,
     CHANGE_LABEL_STYLE,
+    COLOR_DANGER_RED,
+    COLOR_SUCCESS_GREEN,
     LOADING_INDICATOR_STYLE,
     PRICE_LABEL_STYLE,
     REALTIME_LABEL_STYLE,
@@ -48,6 +50,8 @@ class InstrumentInfoPanel(QWidget):
     add_clicked = pyqtSignal()
     positions_clicked = pyqtSignal()
     save_clicked = pyqtSignal()
+    load_clicked = pyqtSignal()
+    new_clicked = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the instrument info panel.
@@ -57,6 +61,19 @@ class InstrumentInfoPanel(QWidget):
         """
         super().__init__(parent)
         self._add_menu: QMenu | None = None
+
+        # Placeholders for UI elements (initialized in _setup_ui)
+        self.symbol_input: QLineEdit
+        self.price_label: QLabel
+        self.change_label: QLabel
+        self._loading_indicator: QProgressBar
+        self._message_label: QLabel
+        self.btn_add: QPushButton
+        self.btn_pos: QPushButton
+        self.btn_save: QPushButton
+        self.btn_load: QPushButton
+        self.btn_new: QPushButton
+
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -64,7 +81,15 @@ class InstrumentInfoPanel(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 10, 0, 10)
 
-        # Symbol input
+        self._setup_symbol_input(layout)
+        self._setup_price_labels(layout)
+        self._setup_realtime_indicator(layout)
+        layout.addStretch()
+        self._setup_loading_indicator(layout)
+        self._setup_action_buttons(layout)
+
+    def _setup_symbol_input(self, layout: QHBoxLayout) -> None:
+        """Set up the symbol input field."""
         self.symbol_input = QLineEdit("SPY")
         self.symbol_input.setFixedWidth(60)
         self.symbol_input.setStyleSheet(SYMBOL_INPUT_STYLE)
@@ -79,32 +104,42 @@ class InstrumentInfoPanel(QWidget):
         )
         connect_edit(self._on_symbol_changed)
 
-        # Price and change labels
+        layout.addWidget(self.symbol_input)
+        layout.addSpacing(10)
+
+    def _setup_price_labels(self, layout: QHBoxLayout) -> None:
+        """Set up price and change labels."""
         self.price_label = QLabel("--")
         self.price_label.setStyleSheet(PRICE_LABEL_STYLE)
 
         self.change_label = QLabel("--\n--")
         self.change_label.setStyleSheet(CHANGE_LABEL_STYLE)
 
-        # Real-time indicator
+        layout.addWidget(self.price_label)
+        layout.addSpacing(10)
+        layout.addWidget(self.change_label)
+        layout.addSpacing(15)
+
+    def _setup_realtime_indicator(self, layout: QHBoxLayout) -> None:
+        """Set up the real-time indicator labels and message display."""
         realtime_label = QLabel("Real-time")
         realtime_label.setStyleSheet(REALTIME_LABEL_STYLE)
 
         rt_help = QLabel("?")
         rt_help.setStyleSheet(RT_HELP_STYLE)
 
-        # Add widgets
-        layout.addWidget(self.symbol_input)
-        layout.addSpacing(10)
-        layout.addWidget(self.price_label)
-        layout.addSpacing(10)
-        layout.addWidget(self.change_label)
-        layout.addSpacing(15)
         layout.addWidget(realtime_label)
         layout.addWidget(rt_help)
-        layout.addStretch()
+        layout.addSpacing(15)
 
-        # Loading indicator (before action buttons to avoid layout shift)
+        # Message label for inline status messages
+        self._message_label = QLabel("")
+        self._message_label.setStyleSheet("font-size: 11px; font-weight: bold;")
+        self._message_label.hide()
+        layout.addWidget(self._message_label)
+
+    def _setup_loading_indicator(self, layout: QHBoxLayout) -> None:
+        """Set up the loading indicator."""
         self._loading_indicator = QProgressBar()
         self._loading_indicator.setFixedWidth(60)
         self._loading_indicator.setFixedHeight(14)
@@ -115,12 +150,21 @@ class InstrumentInfoPanel(QWidget):
         layout.addWidget(self._loading_indicator)
         layout.addSpacing(8)
 
-        # Action buttons
+    def _setup_action_buttons(self, layout: QHBoxLayout) -> None:
+        """Set up action buttons and connect their signals."""
         self.btn_add = QPushButton("Add +")
         self.btn_pos = QPushButton("Positions")
         self.btn_save = QPushButton("Save Trade")
+        self.btn_load = QPushButton("Manage Trades")
+        self.btn_new = QPushButton("New Trade")
 
-        for btn in [self.btn_add, self.btn_pos, self.btn_save]:
+        for btn in [
+            self.btn_add,
+            self.btn_pos,
+            self.btn_save,
+            self.btn_load,
+            self.btn_new,
+        ]:
             btn.setStyleSheet(BUTTON_PRIMARY_STYLE)
             layout.addWidget(btn)
 
@@ -139,6 +183,16 @@ class InstrumentInfoPanel(QWidget):
             "TCallable[..., object]", self.btn_save.clicked.connect
         )
         connect_save(self.save_clicked.emit)
+
+        connect_load: TCallable[..., object] = cast(
+            "TCallable[..., object]", self.btn_load.clicked.connect
+        )
+        connect_load(self.load_clicked.emit)
+
+        connect_new: TCallable[..., object] = cast(
+            "TCallable[..., object]", self.btn_new.clicked.connect
+        )
+        connect_new(self.new_clicked.emit)
 
     def _on_symbol_changed(self) -> None:
         """Handle symbol input change."""
@@ -178,13 +232,16 @@ class InstrumentInfoPanel(QWidget):
         """
         return self.symbol_input.text().strip()
 
-    def set_symbol(self, symbol: str) -> None:
+    def set_symbol(self, symbol: str, *, emit_signal: bool = False) -> None:
         """Set the symbol input text.
 
         Args:
             symbol: The symbol to set.
+            emit_signal: Whether to emit symbol_changed signal.
         """
         self.symbol_input.setText(symbol)
+        if emit_signal and symbol:
+            self.symbol_changed.emit(symbol)
 
     def update_price(self, price_text: str) -> None:
         """Update the price label.
@@ -244,3 +301,31 @@ class InstrumentInfoPanel(QWidget):
             self._loading_indicator.show()
         else:
             self._loading_indicator.hide()
+
+    def show_message(
+        self, message: str, *, is_error: bool = False, duration_ms: int = 3000
+    ) -> None:
+        """Display an inline toast message that auto-hides.
+
+        Args:
+            message: The message to display.
+            is_error: Whether this is an error message (red) or success (green).
+            duration_ms: Time in milliseconds before the message auto-hides.
+        """
+        color = COLOR_DANGER_RED if is_error else COLOR_SUCCESS_GREEN
+        self._message_label.setStyleSheet(
+            f"font-size: 11px; font-weight: bold; color: {color};"
+        )
+        self._message_label.setText(message)
+        self._message_label.show()
+
+        # Auto-hide after duration
+        single_shot: TCallable[[int, TCallable[[], None]], None] = cast(
+            "TCallable[[int, TCallable[[], None]], None]", QTimer.singleShot
+        )
+        single_shot(duration_ms, self.clear_message)
+
+    def clear_message(self) -> None:
+        """Clear the inline message."""
+        self._message_label.setText("")
+        self._message_label.hide()

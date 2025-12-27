@@ -8,9 +8,12 @@ controller for business logic.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, cast, override
 
 from PyQt6.QtGui import QAction, QKeySequence
+
+if TYPE_CHECKING:
+    from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -24,11 +27,14 @@ from mocks.options_data_mock import MockOptionsDataService
 from mocks.pricing_mock import MockPricingService
 
 from ..config import AppConfig
+from ..data.database import DatabaseConnection
+from ..data.trade_repository import TradeRepository
 from ..data.tradier_data import TradierOptionsDataService
 from ..services.aggregation import AggregationService
 from ..services.async_quote_service import AsyncQuoteService
 from ..services.quote_service import QuoteService
 from ..services.strategy_manager import StrategyManager
+from ..services.trade_service import TradeService
 from ..services.workers.manager import WorkerManager
 from .chart_widget import ChartWidget
 from .config_dialog import ConfigDialog
@@ -82,13 +88,21 @@ class MainWindow(QMainWindow):
             self._data_service, self._worker_manager
         )
 
-        # Initialize controller with async support
+        # Initialize database and trade service
+        self._database = DatabaseConnection()
+        self._database.initialize_schema()
+        self._trade_repository = TradeRepository(self._database)
+        self._trade_service = TradeService(self._trade_repository)
+
+        # Initialize controller with async support and trade service
         self._controller = MainWindowController(
             strategy_manager=self._strategy_manager,
             quote_service=self._quote_service,
             aggregator=self._aggregator,
             async_quote_service=self._async_quote_service,
+            trade_service=self._trade_service,
         )
+        self._controller.set_main_window(self)
 
         # Set up UI
         self._setup_central_widget()
@@ -212,6 +226,22 @@ class MainWindow(QMainWindow):
             "TCallable[..., object]", self.instrument_panel.symbol_changed.connect
         )
         connect_symbol(self._on_symbol_changed)
+
+        # Trade action buttons
+        connect_save: TCallable[..., object] = cast(
+            "TCallable[..., object]", self.instrument_panel.save_clicked.connect
+        )
+        connect_save(self._controller.save_trade)
+
+        connect_load: TCallable[..., object] = cast(
+            "TCallable[..., object]", self.instrument_panel.load_clicked.connect
+        )
+        connect_load(self._controller.load_trade)
+
+        connect_new: TCallable[..., object] = cast(
+            "TCallable[..., object]", self.instrument_panel.new_clicked.connect
+        )
+        connect_new(self._controller.new_trade)
 
         # Timeline signals
         connect_expiry: TCallable[..., object] = cast(
@@ -347,3 +377,22 @@ class MainWindow(QMainWindow):
             Option detail data or None if not available.
         """
         return self._controller.get_option_detail_data(leg_idx)
+
+    @override
+    def closeEvent(self, a0: QCloseEvent | None) -> None:
+        """Handle window close event.
+
+        Properly shuts down worker threads before closing.
+
+        Args:
+            a0: The close event.
+        """
+        # Cancel all pending workers and wait for them to finish
+        self._worker_manager.cancel_all()
+        self._worker_manager.wait_for_done(timeout_ms=1000)
+
+        # Close database connection
+        self._database.close()
+
+        if a0:
+            a0.accept()

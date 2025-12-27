@@ -25,12 +25,15 @@ from ..styles import COLOR_DANGER_RED, COLOR_SUCCESS_GREEN
 if TYPE_CHECKING:
     from collections.abc import Callable as TCallable
 
+    from PyQt6.QtWidgets import QMainWindow
+
     from ...data.tradier_data import StockQuote
-    from ...domain.models import OptionQuote, StrategyMetrics
+    from ...domain.models import OptionQuote, Strategy, StrategyMetrics
     from ...services.aggregation import AggregationService
     from ...services.async_quote_service import AsyncQuoteService
     from ...services.quote_service import QuoteService
     from ...services.strategy_manager import StrategyManager
+    from ...services.trade_service import TradeServiceProtocol
     from ..chart_widget import ChartWidget
     from ..option_badge import OptionDetailData
     from ..panels.instrument_info_panel import InstrumentInfoPanel
@@ -98,6 +101,7 @@ class MainWindowController:
         quote_service: QuoteService,
         aggregator: AggregationService,
         async_quote_service: AsyncQuoteService | None = None,
+        trade_service: TradeServiceProtocol | None = None,
     ) -> None:
         """Initialize the controller.
 
@@ -106,13 +110,16 @@ class MainWindowController:
             quote_service: Service for fetching quotes (sync).
             aggregator: Service for aggregating strategy metrics.
             async_quote_service: Optional async quote service for background API calls.
+            trade_service: Optional service for saving/loading trades.
         """
         super().__init__()
         self.strategy_manager = strategy_manager
         self.quote_service = quote_service
         self.aggregator = aggregator
         self.async_quote_service = async_quote_service
+        self.trade_service = trade_service
         self._logger = logging.getLogger(__name__)
+        self._main_window: QMainWindow | None = None
 
         # UI components (set by MainWindow)
         self.instrument_panel: InstrumentInfoPanel | None = None
@@ -129,6 +136,9 @@ class MainWindowController:
         # Loading state
         self._is_loading = False
         self._max_expiries = 20
+
+        # Trade persistence state
+        self._current_trade_id: int | None = None
 
         # Pending async operations
         self._pending_add_option: PendingAddOption | None = None
@@ -1219,3 +1229,150 @@ class MainWindowController:
             vega=metrics.vega,
             rho=0.0,  # Not calculated by current pricing service
         )
+
+    def set_main_window(self, window: QMainWindow) -> None:
+        """Set the main window reference for dialogs.
+
+        Args:
+            window: The main window instance.
+        """
+        self._main_window = window
+
+    def save_trade(self) -> None:
+        """Save or update current positions as a trade.
+
+        If editing an existing trade (has _current_trade_id), updates it.
+        Otherwise, shows save dialog for new trade.
+        """
+        if self.trade_service is None:
+            self._logger.warning("Trade service not available")
+            return
+
+        if not self.strategy_manager.has_strategy():
+            self._show_message("No positions to save", is_error=True)
+            return
+
+        strategy = self.strategy_manager.strategy
+        if strategy is None:
+            return
+
+        # If we have a current trade ID, update the existing trade
+        if self._current_trade_id is not None:
+            try:
+                self.trade_service.update_trade(
+                    self._current_trade_id, strategy, notes=None
+                )
+                self._show_message(f"Trade '{strategy.name}' updated")
+            except ValueError as e:
+                self._show_message(str(e), is_error=True)
+            return
+
+        # Import here to avoid circular imports
+        from ..dialogs.save_trade_dialog import SaveTradeDialog  # noqa: PLC0415
+
+        dialog = SaveTradeDialog(strategy, self.trade_service, self._main_window)
+        if dialog.exec():
+            name, notes = dialog.get_save_data()
+            try:
+                trade_id = self.trade_service.save_trade(strategy, name, notes)
+                self._current_trade_id = trade_id
+                self._show_message(f"Trade '{name}' saved successfully")
+            except ValueError as e:
+                self._show_message(str(e), is_error=True)
+
+    def load_trade(self) -> None:
+        """Show load dialog and restore selected trade."""
+        if self.trade_service is None:
+            self._logger.warning("Trade service not available")
+            return
+
+        # Import here to avoid circular imports
+        from ..dialogs.load_trade_dialog import LoadTradeDialog  # noqa: PLC0415
+
+        dialog = LoadTradeDialog(
+            self.trade_service,
+            self._main_window,
+            current_trade_id=self._current_trade_id,
+        )
+        if dialog.exec():
+            trade_id = dialog.get_selected_trade_id()
+            if trade_id is not None:
+                strategy = self.trade_service.load_trade(trade_id)
+                if strategy:
+                    self.strategy_manager.strategy = strategy
+                    self._current_trade_id = trade_id
+                    self._refresh_ui_after_load(strategy)
+                    self._show_message(f"Trade '{strategy.name}' loaded")
+
+    def new_trade(self) -> None:
+        """Clear current positions and start a new trade."""
+        self.strategy_manager.strategy = None
+        self._current_trade_id = None
+        self.expiries = []
+        self.selected_expiry = None
+        self.strikes = []
+
+        # Reset UI components
+        if self.instrument_panel is not None:
+            self.instrument_panel.set_symbol("")
+            self.instrument_panel.update_price("--")
+            self.instrument_panel.update_change("--")
+            self.instrument_panel.clear_message()
+
+        if self.timeline is not None:
+            self.timeline.set_expiries([])
+
+        if self.strikes_panel is not None:
+            self.strikes_panel.set_strikes([])
+            self.strikes_panel.set_badges([])  # Clear position badges
+
+        if self.chart is not None:
+            self.chart.set_chart_data(
+                ChartData(
+                    prices=[],
+                    pnls=[],
+                    x_min=0.0,
+                    x_max=1.0,
+                    y_min=-1.0,
+                    y_max=1.0,
+                    strike_lines=[],
+                    current_price=0.0,
+                )
+            )
+
+        if self.metrics_panel is not None:
+            self.metrics_panel.clear_metrics()
+
+        self._logger.info("Started new trade")
+
+    def _refresh_ui_after_load(self, strategy: Strategy) -> None:
+        """Refresh the UI after loading a trade.
+
+        Args:
+            strategy: The loaded strategy.
+        """
+        # Update instrument panel with symbol and emit signal to trigger
+        # full refresh (data service reinitialization, expiries, stock quote)
+        if self.instrument_panel is not None:
+            # Show stored price temporarily until live quote arrives
+            self.instrument_panel.update_price(f"${strategy.underlier.spot:.2f}")
+            # Set symbol and emit signal to trigger full data refresh
+            self.instrument_panel.set_symbol(
+                strategy.underlier.symbol, emit_signal=True
+            )
+
+        # Update chart and metrics
+        self.update_chart()
+        self.update_metrics()
+
+    def _show_message(self, message: str, *, is_error: bool = False) -> None:
+        """Show a message to the user inline in the instrument panel.
+
+        Args:
+            message: The message to display.
+            is_error: Whether this is an error message.
+        """
+        if self.instrument_panel is not None:
+            self.instrument_panel.show_message(message, is_error=is_error)
+        else:
+            self._logger.info("Message: %s", message)
