@@ -13,27 +13,25 @@ build-backend = "setuptools.build_meta"
 name = "delta-spread"
 version = "0.1.0"
 description = "Collapse the wave function of uncertainty"
-authors = [{ name = "Your Name", email = "your.email@example.com" }]
+authors = [{ name = "Namuan", email = "575441+namuan@users.noreply.github.com" }]
 license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "pydantic>=2.0.0",
+    "pydantic",
     "requests",
-    "types-requests",
     "python-dotenv",
-    "typing-extensions>=4.12",
-    "pyqt6>=6.10.0",
-    "dotmap>=1.3.30",
-    "flatten-dict>=0.4.2",
+    "pyqt6",
+    "dotmap",
+    "flatten-dict",
 ]
 
 [dependency-groups]
 dev = [
+    "types-requests",
+    "typing-extensions",
     "basedpyright",
     "ruff",
-    "gitingest",
-    "poethepoet",
     "radon",
     "skylos",
     "xenon",
@@ -46,51 +44,6 @@ dev = [
 where = ["."]
 include = ["*"]
 exclude = ["tests*", "scripts*", "docs*", "examples*"]
-
-# ============================================================
-# POE THE POET - Task Runner
-# ============================================================
-[tool.poe.tasks]
-# Run with: poe format or uv run poe format
-# Formats code, fixes issues, and type checks
-format = [
-    {cmd = "ruff format ."},
-    {cmd = "ruff check . --fix"},
-    {cmd = "basedpyright --level error"}
-]
-
-# Run with: poe check
-# Lint and type check without fixing
-check = [
-    {cmd = "ruff check ."},
-    {cmd = "basedpyright --level error"}
-]
-
-# Run with: poe lint or uv run poe lint
-# Only linting, no type checking
-lint = {cmd = "ruff check . --fix"}
-
-# Run with: poe lint-unsafe or uv run poe lint-unsafe
-# Lint with unsafe fixes enabled (more aggressive)
-lint-unsafe = {cmd = "ruff check . --fix --unsafe-fixes"}
-
-# Run with: poe metrics or uv run poe metrics
-# Check code quality: dead code, complexity, and maintainability
-metrics = [
-    {cmd = "skylos . --quality"},
-    {cmd = "radon cc . -a -nb"},
-    {cmd = "radon mi . -nb"}
-]
-
-# Run with: poe quality or uv run poe quality
-# Full quality check: format, lint, type check, and metrics
-quality = [
-    {cmd = "ruff format ."},
-    {cmd = "ruff check . --fix"},
-    {cmd = "basedpyright --level error"},
-    {cmd = "radon cc . -a -nb"},
-    {cmd = "skylos . --quality --danger"},
-]
 
 # ============================================================
 # RUFF CONFIGURATION - MAXIMUM STRICTNESS
@@ -381,26 +334,3 @@ exclude_lines = [
     "@abstractmethod",
     "@overload",
 ]
-
-# ============================================================
-# PANDERA CONFIGURATION (DataFrame Schema Validation)
-# Uncomment this section if using pandas/polars
-# ============================================================
-# [tool.pandera]
-# # Enable strict validation mode
-# strict = true
-#
-# # Validate on assignment (runtime checks)
-# # from pandera.typing import DataFrame, Series
-# # df: DataFrame[MySchema] = pd.DataFrame(...)
-#
-# # Example usage pattern:
-# # 1. Define schema: class MySchema(pa.DataFrameModel): ...
-# # 2. Validate: MySchema.validate(df, lazy=True)
-# # 3. Use typing: def process(df: DataFrame[MySchema]) -> DataFrame[OutputSchema]
-# #
-# # For testing, use pandera.strategies:
-# # @given(df=MySchema.strategy(size=10))
-# # def test_my_function(df):
-# #     result = my_function(df)
-# #     assert OutputSchema.validate(result)
