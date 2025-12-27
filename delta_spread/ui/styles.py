@@ -39,9 +39,7 @@ MONTH_BAR_STYLE = (
 
 SYMBOL_INPUT_STYLE = f"border: 1px solid {COLOR_GRAY_300}; border-radius: 3px; padding: 3px; font-weight: bold;"
 PRICE_LABEL_STYLE = "font-size: 16px; font-weight: bold;"
-CHANGE_LABEL_STYLE = (
-    f"color: {COLOR_SUCCESS_GREEN}; font-size: 11px; font-weight: bold;"
-)
+CHANGE_LABEL_STYLE = "font-size: 11px; font-weight: bold;"
 REALTIME_LABEL_STYLE = f"color: {COLOR_GRAY_600};"
 RT_HELP_STYLE = f"border: 1px solid {COLOR_GRAY_500}; border-radius: 7px; min-width: 14px; min-height: 14px; qproperty-alignment: AlignCenter; font-size: 10px; color: {COLOR_GRAY_900};"
 EXP_LABEL_STYLE = "font-size: 12px;"

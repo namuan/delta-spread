@@ -6,6 +6,7 @@ including symbol input, price, change, and action buttons.
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, cast
 
 from PyQt6.QtCore import QPoint, QTimer, pyqtSignal
@@ -22,6 +23,7 @@ from ..styles import (
     BUTTON_PRIMARY_STYLE,
     CHANGE_LABEL_STYLE,
     COLOR_DANGER_RED,
+    COLOR_GRAY_800,
     COLOR_SUCCESS_GREEN,
     LOADING_INDICATOR_STYLE,
     PRICE_LABEL_STYLE,
@@ -255,9 +257,30 @@ class InstrumentInfoPanel(QWidget):
         """Update the change label.
 
         Args:
-            change_text: Formatted change text with percentage.
+            change_text: Formatted change text with percentage or value lines (e.g. '+0.98%\n+64.23').
         """
         self.change_label.setText(change_text)
+
+        # Infer sign from the first line of the change text and set color accordingly
+        first_line = change_text.splitlines()[0].strip() if change_text else ""
+        is_positive = True
+        if first_line.startswith("-"):
+            is_positive = False
+        elif first_line.startswith("+"):
+            is_positive = True
+        else:
+            # Fallback: try to parse a number and check its sign
+            m = re.search(r"(-?\d+(?:\.\d+)?)", first_line)
+            if m:
+                try:
+                    is_positive = float(m.group(1)) >= 0
+                except ValueError:
+                    is_positive = True
+
+        color = COLOR_SUCCESS_GREEN if is_positive else COLOR_DANGER_RED
+        self.change_label.setStyleSheet(
+            f"color: {color}; font-size: 11px; font-weight: bold;"
+        )
 
     def update_quote(self, quote: StockQuote | None) -> None:
         """Update the display with quote data.
@@ -281,7 +304,12 @@ class InstrumentInfoPanel(QWidget):
         change_pct = quote["change_percentage"]
         sign = "+" if change >= 0 else ""
         change_str = f"{sign}{change_pct:.2f}%\n{sign}{change:.2f}"
+        # Set label text and color by sign
+        color = COLOR_SUCCESS_GREEN if change >= 0 else COLOR_DANGER_RED
         self.change_label.setText(change_str)
+        self.change_label.setStyleSheet(
+            f"color: {color}; font-size: 11px; font-weight: bold;"
+        )
 
     def show_loading(self) -> None:
         """Show the loading indicator."""
@@ -312,10 +340,11 @@ class InstrumentInfoPanel(QWidget):
             is_error: Whether this is an error message (red) or success (green).
             duration_ms: Time in milliseconds before the message auto-hides.
         """
-        color = COLOR_DANGER_RED if is_error else COLOR_SUCCESS_GREEN
-        self._message_label.setStyleSheet(
-            f"font-size: 11px; font-weight: bold; color: {color};"
-        )
+        if is_error:
+            style = f"font-size: 11px; font-weight: bold; color: {COLOR_DANGER_RED};"
+        else:
+            style = f"font-size: 11px; font-style: italic; color: {COLOR_GRAY_800};"
+        self._message_label.setStyleSheet(style)
         self._message_label.setText(message)
         self._message_label.show()
 
