@@ -1,4 +1,3 @@
-import logging
 import sys
 
 from PyQt6.QtGui import QFont, QFontDatabase
@@ -6,13 +5,13 @@ from PyQt6.QtWidgets import QApplication
 
 from delta_spread.ui.main_window import MainWindow
 
+from .logging_config import configure_logging
+
 
 def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    # Configure logging (adds a rotating file handler writing to ~/Library/Logs/DeltaSpread/app.log on macOS)
+    configure_logging()
+
     app = QApplication(sys.argv)
     families = QFontDatabase.families()
     candidates = ["Segoe UI", "Helvetica Neue", "Arial", "Noto Sans", "DejaVu Sans"]
