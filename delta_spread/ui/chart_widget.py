@@ -60,7 +60,6 @@ class ChartWidget(QWidget):
         self._draw_bell_curve(painter)
         self._draw_profit_loss_curves(painter)
         self._draw_current_price(painter)
-        self._draw_strike_lines(painter)
         self._draw_legend(painter)
 
     def _draw_background_and_grid(self, painter: QPainter) -> None:
@@ -195,23 +194,6 @@ class ChartWidget(QWidget):
         painter.setPen(QColor("#2196F3"))
         painter.setFont(QFont("Arial", 9, QFont.Weight.Bold))
         painter.drawText(int(px_c) + 5, top_m + 20, f"{self._current_price:,.2f}")
-
-    def _draw_strike_lines(self, painter: QPainter) -> None:
-        w = self.width()
-        h = self.height()
-        left_m = 50
-        bottom_m = 30
-        right_m = 20
-        top_m = 20
-        graph_w = w - left_m - right_m
-        if not self._strike_lines or self._x_max == self._x_min:
-            return
-        for s in self._strike_lines:
-            px = float(left_m) + (s - self._x_min) / (
-                self._x_max - self._x_min
-            ) * float(graph_w)
-            painter.setPen(QPen(QColor("#555"), 1, Qt.PenStyle.DotLine))
-            painter.drawLine(int(px), top_m, int(px), h - bottom_m)
 
     @staticmethod
     def _draw_legend(painter: QPainter) -> None:
