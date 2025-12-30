@@ -1,4 +1,3 @@
-from collections.abc import Mapping
 from datetime import date, datetime
 from enum import Enum
 from typing import Self
@@ -160,10 +159,3 @@ class StrategyMetrics(BaseModel):
     vega: float
     margin_estimate: float
     grid: AggregationGrid | None = None
-
-
-class StrategySnapshot(BaseModel):
-    model_config = ConfigDict(frozen=True)
-    strategy: Strategy
-    spot: float
-    quotes: Mapping[tuple[date, float, OptionType], OptionQuote]

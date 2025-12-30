@@ -10,7 +10,6 @@ import logging
 import os
 from pathlib import Path
 import sqlite3
-from typing import Protocol
 
 _APP_NAME = "DeltaSpread"
 _DB_FILENAME = "trades.db"
@@ -68,22 +67,6 @@ CREATE INDEX IF NOT EXISTS idx_trades_name ON trades(name);
 CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(underlier_symbol);
 CREATE INDEX IF NOT EXISTS idx_trade_legs_trade ON trade_legs(trade_id);
 """
-
-
-class DatabaseConnectionProtocol(Protocol):
-    """Protocol for database connection management."""
-
-    def get_connection(self) -> sqlite3.Connection:
-        """Get the SQLite connection."""
-        ...
-
-    def close(self) -> None:
-        """Close the database connection."""
-        ...
-
-    def initialize_schema(self) -> None:
-        """Create tables if they don't exist."""
-        ...
 
 
 class DatabaseConnection:

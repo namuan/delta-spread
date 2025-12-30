@@ -8,4 +8,5 @@ dist/
 .aider*
 .env
 __pycache__/
+.cytoscnpy/
 *.egg-info/
