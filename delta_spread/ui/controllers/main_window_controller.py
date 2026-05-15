@@ -138,6 +138,9 @@ class MainWindowController:
         self._is_loading = False
         self._max_expiries = 20
 
+        # Chart range state
+        self._range_percent: int = 30
+
         # Trade persistence state
         self._current_trade_id: int | None = None
 
@@ -868,14 +871,16 @@ class MainWindowController:
                 m,
                 strike_lines=strikes_sel,
                 current_price=strategy.underlier.spot,
+                range_percent=float(self._range_percent),
             )
             self.chart.set_chart_data(cd)
             self.chart.repaint()
 
-    def _reset_strategy_state(self) -> None:
-        """Reset strategy state and clear displays."""
-        self.strategy_manager.reset()
+    def on_range_changed(self, value: int) -> None:
+        self._range_percent = value
+        self.update_chart()
 
+    def _reset_strategy_state(self) -> None:
         if self.metrics_panel is not None:
             self.metrics_panel.clear_metrics()
 

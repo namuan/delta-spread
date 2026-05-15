@@ -127,7 +127,7 @@ class FooterControlsPanel(QWidget):
         row = QHBoxLayout()
         row.setContentsMargins(0, 10, 0, 0)
 
-        self.lbl_range = QLabel("RANGE: <b>±3.6%</b>")
+        self.lbl_range = QLabel("RANGE: <b>±30%</b>")
 
         lbl_refresh = QLabel("↺")
         lbl_refresh.setStyleSheet(REFRESH_LABEL_STYLE)
@@ -162,6 +162,7 @@ class FooterControlsPanel(QWidget):
             The range slider widget.
         """
         self.range_slider = QSlider(Qt.Orientation.Horizontal)
+        self.range_slider.setRange(1, 100)
         self.range_slider.setValue(30)
         self.range_slider.setStyleSheet(RANGE_SLIDER_QSS)
 

@@ -257,6 +257,12 @@ class MainWindow(QMainWindow):
         )
         self.strikes_panel.set_detail_data_provider(self._get_option_detail_data)
 
+        # Footer panel signals
+        connect_range: TCallable[..., object] = cast(
+            "TCallable[..., object]", self.footer_panel.range_changed.connect
+        )
+        connect_range(self._on_range_changed)
+
     def _open_preferences(self) -> None:
         """Open the preferences dialog."""
         dialog = ConfigDialog(self._config, self)
@@ -316,6 +322,15 @@ class MainWindow(QMainWindow):
         """
         self._controller.on_expiry_selected(expiry)
         self._update_exp_label()
+
+    def _on_range_changed(self, value: int) -> None:
+        """Handle range slider change.
+
+        Args:
+            value: New range value (percent).
+        """
+        self.footer_panel.update_range_label(f"RANGE: <b>±{value}%</b>")
+        self._controller.on_range_changed(value)
 
     def _update_exp_label(self) -> None:
         """Update the expiration label with days to expiry."""

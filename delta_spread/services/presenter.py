@@ -23,7 +23,10 @@ class ChartData:
 class ChartPresenter:
     @staticmethod
     def prepare(
-        metrics: StrategyMetrics, strike_lines: Iterable[float], current_price: float
+        metrics: StrategyMetrics,
+        strike_lines: Iterable[float],
+        current_price: float,
+        range_percent: float = 0.0,
     ) -> ChartData:
         grid: AggregationGrid | None = metrics.grid
         if grid is None or not grid.prices:
@@ -37,13 +40,20 @@ class ChartPresenter:
                 strike_lines=list(strike_lines),
                 current_price=current_price,
             )
-        x_min = min(grid.prices)
-        x_max = max(grid.prices)
-        x_min = min(x_min, current_price)
-        x_max = max(x_max, current_price)
-        pad = 0.02 * (x_max - x_min) if x_max > x_min else 0.0
-        x_min -= pad
-        x_max += pad
+
+        if range_percent > 0 and current_price > 0:
+            half_range = current_price * range_percent / 100.0
+            x_min = current_price - half_range
+            x_max = current_price + half_range
+        else:
+            x_min = min(grid.prices)
+            x_max = max(grid.prices)
+            x_min = min(x_min, current_price)
+            x_max = max(x_max, current_price)
+            pad = 0.02 * (x_max - x_min) if x_max > x_min else 0.0
+            x_min -= pad
+            x_max += pad
+
         y_min = min(grid.pnls)
         y_max = max(grid.pnls)
         return ChartData(
