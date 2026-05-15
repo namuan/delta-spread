@@ -5,6 +5,7 @@ Dialog for saving the current positions as a named trade.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
     from ...domain.models import Strategy
     from ...services.trade_service import TradeServiceProtocol
 
+logger = logging.getLogger(__name__)
 _MAX_NAME_LENGTH = 100
 
 
@@ -173,6 +175,7 @@ class SaveTradeDialog(QDialog):
         name = self._name_input.text().strip()
         if not name:
             return
+        logger.info("SaveTradeDialog: saving trade '%s'", name)
         self.accept()
 
     def get_save_data(self) -> tuple[str, str | None]:

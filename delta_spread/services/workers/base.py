@@ -6,9 +6,12 @@ from abc import abstractmethod
 import contextlib
 from dataclasses import dataclass
 from enum import Enum, auto
+import logging
 from typing import override
 
 from PyQt6.QtCore import QObject, QRunnable, pyqtSignal
+
+logger = logging.getLogger(__name__)
 
 
 class WorkerState(Enum):
@@ -97,14 +100,17 @@ class BaseWorker(QRunnable):
         application shutdown gracefully when Qt objects are deleted.
         """
         if self._is_cancelled:
+            logger.debug("Worker %s cancelled before execution", self.request_id)
             self._safe_emit_cancelled()
             return
 
         self._safe_emit_started()
 
         try:
+            logger.debug("Worker %s executing", self.request_id)
             result = self.execute()
             if self._is_cancelled:
+                logger.debug("Worker %s cancelled after execution", self.request_id)
                 self._safe_emit_cancelled()
                 return
 
@@ -113,10 +119,11 @@ class BaseWorker(QRunnable):
                 error=None,
                 request_id=self.request_id,
             )
+            logger.debug("Worker %s completed successfully", self.request_id)
             self._safe_emit_finished(worker_result)
 
         except Exception as e:  # noqa: BLE001
-            # Catch all exceptions from user code to emit as errors
+            logger.error("Worker %s failed: %s", self.request_id, e)
             worker_result = WorkerResult(
                 data=None,
                 error=e,

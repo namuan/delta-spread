@@ -120,7 +120,7 @@ class DatabaseConnection:
         conn = self.get_connection()
         conn.executescript(_SCHEMA_SQL)
         conn.commit()
-        self._logger.info("Database schema initialized")
+        self._logger.info("Database schema initialized at %s", self._db_path)
 
     def __enter__(self) -> DatabaseConnection:
         """Context manager entry."""

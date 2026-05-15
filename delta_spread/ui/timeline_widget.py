@@ -1,4 +1,5 @@
 from datetime import date
+import logging
 from typing import TYPE_CHECKING, cast
 
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -22,6 +23,8 @@ from .styles import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable as TCallable
+
+logger = logging.getLogger(__name__)
 
 
 class TimelineWidget(QWidget):
@@ -66,6 +69,7 @@ class TimelineWidget(QWidget):
 
     def set_expiries(self, expiries: list[date]) -> None:
         self.expiries = list(expiries)
+        logger.debug("Timeline: set %d expiry dates", len(self.expiries))
         self._render()
 
     def select_expiry(self, d: date) -> None:
@@ -114,10 +118,6 @@ class TimelineWidget(QWidget):
             )
 
         self.scroll_layout.addStretch()
-        if self.expiries:
-            first = self.expiries[0]
-            self.select_expiry(first)
-            self.expiry_selected.emit(first)
 
     def _group_expiries_by_month(self) -> list[tuple[str, list[date]]]:
         month_groups: list[tuple[str, list[date]]] = []
@@ -156,6 +156,7 @@ class TimelineWidget(QWidget):
         return label
 
     def _on_day_clicked(self, d: date) -> None:
+        logger.info("Timeline: expiry selected → %s", d)
         self.select_expiry(d)
         self.expiry_selected.emit(d)
 

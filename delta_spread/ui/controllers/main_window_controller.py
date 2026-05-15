@@ -149,6 +149,8 @@ class MainWindowController:
         self._pending_toggle: PendingToggle | None = None
         self._pending_move: PendingMove | None = None
         self._pending_expiry_changes: list[PendingExpiryChange] = []
+        self._pending_expiry_prices: dict[int, float] = {}
+        self._pending_expiry_target: date | None = None
 
         # Wire async signals
         self._connect_async_signals()
@@ -179,11 +181,37 @@ class MainWindowController:
             expiries: List of available expiry dates.
         """
         self.expiries = expiries[: self._max_expiries]
+        self._logger.info(
+            "Expiries loaded: %d dates (max=%d)", len(self.expiries), self._max_expiries
+        )
         self.selected_expiry = None
         self.render_timeline()
 
+        # Select the appropriate expiry:
+        #   - If a strategy is loaded, prefer its legs' expiry
+        #   - Otherwise fall back to the first available expiry
+        strategy = self.strategy_manager.strategy
+        target_expiry: date | None = None
+        if strategy and strategy.legs:
+            leg_expiry = strategy.legs[0].contract.expiry
+            if leg_expiry in self.expiries:
+                target_expiry = leg_expiry
+                self._logger.info(
+                    "Selected strategy expiry: %s (from loaded legs)", target_expiry
+                )
+            else:
+                self._logger.warning(
+                    "Strategy expiry %s not in available expiries — falling back",
+                    leg_expiry,
+                )
+        if target_expiry is None and self.expiries:
+            target_expiry = self.expiries[0]
+            self._logger.debug("Falling back to first expiry: %s", target_expiry)
+
+        if target_expiry is not None:
+            self.on_expiry_selected(target_expiry)
         # Chain: fetch stock quote after expiries
-        if self.instrument_panel is not None:
+        elif self.instrument_panel is not None:
             symbol = self.instrument_panel.get_symbol()
             self.async_quote_service.fetch_stock_quote(symbol)
 
@@ -413,6 +441,9 @@ class MainWindowController:
     ) -> bool:
         """Complete a pending expiry change operation.
 
+        Collects quote prices and performs batch update when all
+        quotes have been received.
+
         Returns:
             True if a pending expiry change was completed, False otherwise.
         """
@@ -431,24 +462,32 @@ class MainWindowController:
             return False
 
         pending = self._pending_expiry_changes.pop(matching_idx)
+        self._pending_expiry_prices[pending.leg_idx] = quote.mid
+        self._logger.debug(
+            "Collected quote for leg %d at %s: mid=%.2f",
+            pending.leg_idx,
+            pending.new_expiry,
+            quote.mid,
+        )
 
-        try:
-            self.strategy_manager.update_leg_expiry(
-                pending.leg_idx, pending.new_expiry, quote.mid
-            )
-            self._logger.info(
-                "Updated leg %d expiry to %s with price %.2f",
-                pending.leg_idx,
-                pending.new_expiry,
-                quote.mid,
-            )
+        # Only update strategy when ALL pending expiry quotes are collected
+        if not self._pending_expiry_changes and self._pending_expiry_target is not None:
+            try:
+                self.strategy_manager.update_all_legs_expiry(
+                    self._pending_expiry_target, self._pending_expiry_prices
+                )
+                self._logger.info(
+                    "Batch updated all %d legs expiry to %s",
+                    len(self._pending_expiry_prices),
+                    self._pending_expiry_target,
+                )
+            except ValueError as e:
+                self._logger.warning("Failed to batch update legs expiry: %s", e)
 
-            # Only update UI if all pending expiry changes are complete
-            if not self._pending_expiry_changes:
-                self.update_metrics()
-                self.update_chart()
-        except ValueError as e:
-            self._logger.warning("Failed to update leg expiry: %s", e)
+            self._pending_expiry_prices.clear()
+            self._pending_expiry_target = None
+            self.update_metrics()
+            self.update_chart()
 
         return True
 
@@ -559,6 +598,16 @@ class MainWindowController:
             expiry: Selected expiry date.
         """
         self.selected_expiry = expiry
+        self._logger.info(
+            "on_expiry_selected: expiry=%s strategy=%s legs_expiry=%s",
+            expiry,
+            "set" if self.strategy_manager.has_strategy() else "None",
+            self.strategy_manager.strategy.legs[0].contract.expiry
+            if self.strategy_manager.has_strategy()
+            and self.strategy_manager.strategy
+            and self.strategy_manager.strategy.legs
+            else "N/A",
+        )
 
         if self.timeline is not None:
             self.timeline.select_expiry(expiry)
@@ -578,19 +627,37 @@ class MainWindowController:
         """
         strategy = self.strategy_manager.strategy
         if strategy is None:
+            self._logger.debug("_update_strategy_legs_expiry: no strategy, skipping")
             return
 
         if self.instrument_panel is None:
+            self._logger.debug(
+                "_update_strategy_legs_expiry: no instrument_panel, skipping"
+            )
             return
 
         # Check if expiry actually changed
         if strategy.legs and strategy.legs[0].contract.expiry == new_expiry:
+            self._logger.debug(
+                "_update_strategy_legs_expiry: expiry unchanged (%s), skipping",
+                new_expiry,
+            )
             return
+
+        self._logger.warning(
+            "_update_strategy_legs_expiry: CHANGING legs expiry from %s → %s (strategy=%s, %d legs)",
+            strategy.legs[0].contract.expiry if strategy.legs else "N/A",
+            new_expiry,
+            strategy.name,
+            len(strategy.legs),
+        )
 
         symbol = self.instrument_panel.get_symbol()
 
         # Clear any existing pending expiry changes
         self._pending_expiry_changes.clear()
+        self._pending_expiry_prices.clear()
+        self._pending_expiry_target = new_expiry
 
         # Queue up expiry change requests for each leg
         for leg_idx, leg in enumerate(strategy.legs):
@@ -878,6 +945,7 @@ class MainWindowController:
 
     def on_range_changed(self, value: int) -> None:
         self._range_percent = value
+        self._logger.info("Range changed → ±%d%%", value)
         self.update_chart()
 
     def _reset_strategy_state(self) -> None:
@@ -1066,6 +1134,11 @@ class MainWindowController:
 
         # If we have a current trade ID, update the existing trade
         if self._current_trade_id is not None:
+            self._logger.info(
+                "Updating existing trade id=%d name='%s'",
+                self._current_trade_id,
+                strategy.name,
+            )
             try:
                 self.trade_service.update_trade(
                     self._current_trade_id, strategy, notes=None
@@ -1084,6 +1157,7 @@ class MainWindowController:
             try:
                 trade_id = self.trade_service.save_trade(strategy, name, notes)
                 self._current_trade_id = trade_id
+                self._logger.info("Saved new trade id=%d name='%s'", trade_id, name)
                 self._show_message(f"Trade '{name}' saved successfully")
             except ValueError as e:
                 self._show_message(str(e), is_error=True)
@@ -1107,6 +1181,13 @@ class MainWindowController:
             if trade_id is not None:
                 strategy = self.trade_service.load_trade(trade_id)
                 if strategy:
+                    self._logger.info(
+                        "Loaded trade id=%d name='%s' expiry=%s legs=%d",
+                        trade_id,
+                        strategy.name,
+                        strategy.legs[0].contract.expiry if strategy.legs else "N/A",
+                        len(strategy.legs),
+                    )
                     self.strategy_manager.strategy = strategy
                     self._current_trade_id = trade_id
                     self._refresh_ui_after_load(strategy)
@@ -1159,6 +1240,13 @@ class MainWindowController:
         Args:
             strategy: The loaded strategy.
         """
+        self._logger.info(
+            "_refresh_ui_after_load: symbol=%s spot=%.2f legs=%d expiry=%s",
+            strategy.underlier.symbol,
+            strategy.underlier.spot,
+            len(strategy.legs),
+            strategy.legs[0].contract.expiry if strategy.legs else "N/A",
+        )
         # Update instrument panel with symbol and emit signal to trigger
         # full refresh (data service reinitialization, expiries, stock quote)
         if self.instrument_panel is not None:
@@ -1168,10 +1256,26 @@ class MainWindowController:
             self.instrument_panel.set_symbol(
                 strategy.underlier.symbol, emit_signal=True
             )
+            self._logger.debug(
+                "After set_symbol: strategy expiry still=%s",
+                self.strategy_manager.strategy.legs[0].contract.expiry
+                if self.strategy_manager.has_strategy()
+                and self.strategy_manager.strategy
+                and self.strategy_manager.strategy.legs
+                else "N/A",
+            )
 
         # Update chart and metrics
         self.update_chart()
         self.update_metrics()
+        self._logger.debug(
+            "After update_chart/metrics: strategy expiry=%s",
+            self.strategy_manager.strategy.legs[0].contract.expiry
+            if self.strategy_manager.has_strategy()
+            and self.strategy_manager.strategy
+            and self.strategy_manager.strategy.legs
+            else "N/A",
+        )
 
     def _show_message(self, message: str, *, is_error: bool = False) -> None:
         """Show a message to the user inline in the instrument panel.

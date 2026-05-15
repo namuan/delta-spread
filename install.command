@@ -1,6 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 
+OPEN_AFTER=false
+for arg in "$@"; do
+  case "$arg" in
+    --open) OPEN_AFTER=true ;;
+  esac
+done
+
 log() { printf "[%s] %s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
 cleanup() {
   if [[ -n "${TMP_DIR:-}" && -d "$TMP_DIR" ]]; then
@@ -28,6 +35,11 @@ cd "$(dirname "$0")"
 log "Changed to script directory: $(pwd)"
 
 make setup
+
+if [[ "$OPEN_AFTER" == true ]]; then
+    log "=== Step 3: Opening DeltaSpread ==="
+    open "$HOME/Applications/DeltaSpread.app"
+fi
 
 log "✅ Installation complete! The application is now in ~/Applications."
 log "✅ You can close this terminal window."

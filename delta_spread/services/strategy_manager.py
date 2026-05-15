@@ -391,3 +391,55 @@ class StrategyManager:
         ):
             return self._strategy.legs[0].contract.expiry
         return selected_expiry
+
+    def update_all_legs_expiry(
+        self,
+        new_expiry: date,
+        entry_prices: dict[int, float],
+    ) -> Strategy:
+        """Update all legs to a new expiry date atomically.
+
+        Unlike update_leg_expiry which changes one leg at a time
+        (which fails when same_expiry=True), this updates all legs
+        in a single operation so the Strategy model remains valid.
+
+        Args:
+            new_expiry: New expiry date for all legs.
+            entry_prices: Map of leg index to new entry price.
+                Legs not in the dict keep their existing entry_price.
+
+        Returns:
+            The updated strategy.
+
+        Raises:
+            ValueError: If no strategy exists.
+        """
+        if self._strategy is None:
+            raise ValueError("Cannot update legs: no strategy exists")
+
+        new_legs: list[OptionLeg] = []
+        for i, leg in enumerate(self._strategy.legs):
+            contract = OptionContract(
+                underlier=leg.contract.underlier,
+                expiry=new_expiry,
+                strike=leg.contract.strike,
+                type=leg.contract.type,
+            )
+            new_legs.append(
+                OptionLeg(
+                    contract=contract,
+                    side=leg.side,
+                    quantity=leg.quantity,
+                    entry_price=entry_prices.get(i, leg.entry_price),
+                    notes=leg.notes,
+                )
+            )
+
+        self._strategy = Strategy(
+            name=self._strategy.name,
+            underlier=self._strategy.underlier,
+            legs=new_legs,
+            constraints=self._strategy.constraints,
+        )
+        self._logger.info("Updated all %d legs expiry to %s", len(new_legs), new_expiry)
+        return self._strategy

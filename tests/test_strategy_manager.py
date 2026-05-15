@@ -211,3 +211,109 @@ def test_strategy_manager_update_leg_expiry_no_strategy() -> None:
 
     with pytest.raises(ValueError, match="no strategy exists"):
         mgr.update_leg_expiry(0, date(2026, 2, 21), 2.5)
+
+
+class TestUpdateAllLegsExpiry:
+    """Tests for StrategyManager.update_all_legs_expiry."""
+
+    def _two_leg_strategy(self) -> Strategy:
+        u = _underlier("SPY")
+        expiry = date(2026, 1, 17)
+        leg1 = _leg(
+            underlier=u,
+            expiry=expiry,
+            strike=500.0,
+            option_type=OptionType.CALL,
+            side=Side.BUY,
+            entry_price=3.50,
+        )
+        leg2 = _leg(
+            underlier=u,
+            expiry=expiry,
+            strike=510.0,
+            option_type=OptionType.PUT,
+            side=Side.SELL,
+            entry_price=2.00,
+        )
+        return Strategy(name="TwoLeg", underlier=u, legs=[leg1, leg2])
+
+    def test_updates_all_legs_expiry_atomically(self) -> None:
+        mgr = StrategyManager(self._two_leg_strategy())
+        new_expiry = date(2026, 2, 21)
+        entry_prices = {0: 4.10, 1: 1.80}
+
+        result = mgr.update_all_legs_expiry(new_expiry, entry_prices)
+
+        assert result.legs[0].contract.expiry == new_expiry
+        assert result.legs[1].contract.expiry == new_expiry
+        assert result.legs[0].entry_price == 4.10
+        assert result.legs[1].entry_price == 1.80
+
+    def test_preserves_existing_price_for_unspecified_legs(self) -> None:
+        mgr = StrategyManager(self._two_leg_strategy())
+        new_expiry = date(2026, 3, 20)
+        entry_prices = {0: 5.00}
+
+        result = mgr.update_all_legs_expiry(new_expiry, entry_prices)
+
+        assert result.legs[0].contract.expiry == new_expiry
+        assert result.legs[1].contract.expiry == new_expiry
+        assert result.legs[0].entry_price == 5.00
+        assert result.legs[1].entry_price == 2.00
+
+    def test_preserves_strike_type_and_side(self) -> None:
+        mgr = StrategyManager(self._two_leg_strategy())
+        new_expiry = date(2026, 4, 17)
+        entry_prices = {0: 3.00, 1: 2.50}
+
+        result = mgr.update_all_legs_expiry(new_expiry, entry_prices)
+
+        assert result.legs[0].contract.strike == 500.0
+        assert result.legs[0].contract.type is OptionType.CALL
+        assert result.legs[0].side is Side.BUY
+        assert result.legs[1].contract.strike == 510.0
+        assert result.legs[1].contract.type is OptionType.PUT
+        assert result.legs[1].side is Side.SELL
+
+    def test_same_expiry_validator_passes_after_batch_update(self) -> None:
+        mgr = StrategyManager(self._two_leg_strategy())
+        new_expiry = date(2026, 5, 15)
+        entry_prices = {0: 2.00, 1: 1.50}
+
+        result = mgr.update_all_legs_expiry(new_expiry, entry_prices)
+
+        assert all(leg.contract.expiry == new_expiry for leg in result.legs)
+
+    def test_raises_when_no_strategy(self) -> None:
+        mgr = StrategyManager()
+        with pytest.raises(ValueError, match="no strategy exists"):
+            mgr.update_all_legs_expiry(date(2026, 2, 21), {})
+
+    def test_empty_entry_prices_keeps_all_original_prices(self) -> None:
+        mgr = StrategyManager(self._two_leg_strategy())
+        new_expiry = date(2026, 6, 19)
+
+        result = mgr.update_all_legs_expiry(new_expiry, {})
+
+        assert result.legs[0].entry_price == 3.50
+        assert result.legs[1].entry_price == 2.00
+        assert all(leg.contract.expiry == new_expiry for leg in result.legs)
+
+    def test_single_leg_strategy(self) -> None:
+        u = _underlier("SPY")
+        expiry = date(2026, 1, 17)
+        leg = _leg(
+            underlier=u,
+            expiry=expiry,
+            strike=500.0,
+            option_type=OptionType.CALL,
+            side=Side.BUY,
+            entry_price=3.50,
+        )
+        mgr = StrategyManager(Strategy(name="Single", underlier=u, legs=[leg]))
+        new_expiry = date(2026, 2, 21)
+
+        result = mgr.update_all_legs_expiry(new_expiry, {0: 4.00})
+
+        assert result.legs[0].contract.expiry == new_expiry
+        assert result.legs[0].entry_price == 4.00

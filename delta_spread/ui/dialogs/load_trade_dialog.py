@@ -5,6 +5,7 @@ Dialog for loading a saved trade from the database.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
@@ -33,6 +34,8 @@ if TYPE_CHECKING:
 
     from ...data.trade_repository import TradeSummary
     from ...services.trade_service import TradeServiceProtocol
+
+logger = logging.getLogger(__name__)
 
 
 class LoadTradeDialog(QDialog):
@@ -154,6 +157,7 @@ class LoadTradeDialog(QDialog):
     def _load_trades(self) -> None:
         """Load trades from the service into the table."""
         trades = self._trade_service.get_saved_trades()
+        logger.info("LoadTradeDialog: found %d saved trades", len(trades))
         self._table.setRowCount(len(trades))
 
         if not trades:
@@ -221,6 +225,7 @@ class LoadTradeDialog(QDialog):
     def _on_load(self) -> None:
         """Handle load button click."""
         if self._selected_trade_id is not None:
+            logger.info("LoadTradeDialog: loading trade id=%d", self._selected_trade_id)
             self.accept()
 
     def _on_delete(self) -> None:
@@ -243,6 +248,11 @@ class LoadTradeDialog(QDialog):
         )
 
         if reply == QMessageBox.StandardButton.Yes:
+            logger.info(
+                "LoadTradeDialog: deleting trade id=%d name='%s'",
+                self._selected_trade_id,
+                trade_name,
+            )
             self._trade_service.delete_trade(self._selected_trade_id)
             self._selected_trade_id = None
             self._load_trades()

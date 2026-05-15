@@ -6,6 +6,7 @@ date slider, range slider, IV controls, and marker labels.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, cast
 
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -29,6 +30,8 @@ from ..styles import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable as TCallable
+
+logger = logging.getLogger(__name__)
 
 
 class FooterControlsPanel(QWidget):
@@ -116,6 +119,7 @@ class FooterControlsPanel(QWidget):
         Args:
             value: New slider value.
         """
+        logger.debug("Date slider changed → %d", value)
         self.date_changed.emit(value)
 
     def _build_iv_row(self) -> QHBoxLayout:
@@ -179,6 +183,7 @@ class FooterControlsPanel(QWidget):
         Args:
             value: New slider value.
         """
+        logger.info("Range slider changed → ±%d%%", value)
         self.range_changed.emit(value)
 
     def _build_markers_layout(self) -> QHBoxLayout:

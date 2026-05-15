@@ -1,7 +1,10 @@
 from collections.abc import Mapping
+import logging
 
 from ..domain.models import AggregationGrid, OptionType, Side, Strategy, StrategyMetrics
 from .pricing import PricingService
+
+logger = logging.getLogger(__name__)
 
 
 class AggregationService:
@@ -27,6 +30,18 @@ class AggregationService:
         bevs = self._find_break_evens(prices, pnls)
         delta, gamma, theta, vega = self._sum_greeks(strategy, spot, ivs)
         grid = AggregationGrid(prices=prices, pnls=pnls)
+        logger.debug(
+            "Aggregate: net=%.2f max_profit=%.2f max_loss=%.2f breakevens=%s delta=%.3f gamma=%.3f theta=%.3f vega=%.3f grid=%d pts",
+            net,
+            max(pnls),
+            min(pnls),
+            bevs,
+            delta,
+            gamma,
+            theta,
+            vega,
+            len(prices),
+        )
         return StrategyMetrics(
             net_debit_credit=net,
             max_profit=max(pnls),

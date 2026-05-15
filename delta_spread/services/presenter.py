@@ -1,11 +1,14 @@
 from collections.abc import Iterable
 from dataclasses import dataclass
+import logging
 from typing import TYPE_CHECKING
 
 from ..domain.models import StrategyMetrics
 
 if TYPE_CHECKING:
     from ..domain.models import AggregationGrid
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -56,6 +59,15 @@ class ChartPresenter:
 
         y_min = min(grid.pnls)
         y_max = max(grid.pnls)
+        logger.debug(
+            "ChartPresenter: range_pct=%.1f x=[%.2f, %.2f] y=[%.2f, %.2f] strikes=%d",
+            range_percent,
+            x_min,
+            x_max,
+            y_min,
+            y_max,
+            len(list(strike_lines)),
+        )
         return ChartData(
             prices=grid.prices,
             pnls=grid.pnls,

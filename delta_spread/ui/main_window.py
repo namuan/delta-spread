@@ -74,6 +74,9 @@ class MainWindow(QMainWindow):
 
         self._config = AppConfig.load()
         self._logger = logging.getLogger(__name__)
+        self._logger.info(
+            "Initializing MainWindow (use_real_data=%s)", self._config.use_real_data
+        )
 
         # Initialize services
         self._data_service: OptionsDataService = self._init_data_service()
@@ -112,6 +115,7 @@ class MainWindow(QMainWindow):
 
         # Initial data load
         self._controller.on_symbol_changed(self.instrument_panel.get_symbol())
+        self._logger.info("MainWindow initialized successfully")
 
     def _init_data_service(self) -> OptionsDataService:
         """Initialize the appropriate data service based on configuration.
